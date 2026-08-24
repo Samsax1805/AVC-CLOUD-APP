@@ -3,7 +3,6 @@ St. Barnabas Amazing Voices Choir - Cloud Storage App
 
 A comprehensive, standalone cloud storage and management web application for choir members. It features role-based access control, music file management, debt tracking, voice notes, and audit logging.
 
-This application runs entirely in the browser using localStorage for data persistence, meaning no backend server or database setup is required.
 
 ✨ Features
 
