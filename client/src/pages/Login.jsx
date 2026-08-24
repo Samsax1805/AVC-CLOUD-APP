@@ -19,7 +19,12 @@ function GoogleMark() {
 export default function Login({ onSwitch }) {
   const { login, startGoogleLogin } = useAuth();
   const { toast } = useToast();
+
+  // [BACKEND] VITE_GOOGLE_CLIENT_ID is set in client/.env
+  // The backend should verify the Google ID token using google-auth-library
+  // and match the same Client ID that was issued in Google Cloud Console.
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
@@ -28,6 +33,55 @@ export default function Login({ onSwitch }) {
   const gBtnRef = useRef(null);
   const startRef = useRef(startGoogleLogin);
   useEffect(() => { startRef.current = startGoogleLogin; });
+
+  // ====================================================================
+  // [BACKEND] AUTHENTICATION FLOW - READ THIS CAREFULLY
+  // ====================================================================
+  //
+  // 1. EMAIL/PASSWORD LOGIN
+  //    POST /api/auth/login
+  //    Body:      { "email": "string", "password": "string" }
+  //    Success:   { "user": { id, name, email, roles:[], section, avatar }, "access": "JWT" }
+  //    Failure:   401 { "msg": "Invalid credentials" }
+  //
+  // 2. GOOGLE SIGN-IN
+  //    POST /api/auth/google
+  //    Body:      { "email", "name", "avatarUrl", "googleId", "idToken" (optional raw token) }
+  //    Behaviour: - If email exists -> log them in
+  //               - If email is new -> auto-create user with role=["member"], section=null
+  //    Success:   Same shape as /login
+  //    Failure:   401 { "msg": "Google sign-in failed" }
+  //
+  // 3. SECTION SELECTION (shown after Google login or if section is null)
+  //    POST /api/auth/section
+  //    Body:      { "section": "Soprano" | "Alto" | "Tenor" | "Bass" }
+  //    Header:    Authorization: Bearer <JWT>
+  //    Success:   { "user": { ...updated user with section set } }
+  //
+  // 4. REGISTRATION
+  //    POST /api/auth/register
+  //    Body:      { "name", "phone", "email", "password" }
+  //    Success:   { "success": true, "message": "Registration submitted for approval" }
+  //    Note:      New users should be created with approved=false until Admin approves.
+  //
+  // 5. PASSWORD RESET (placeholder, not yet wired)
+  //    POST /api/auth/forgot-password  { "email" }
+  //    POST /api/auth/reset-password   { "token", "newPassword" }
+  //
+  // 6. SEED / DEMO ACCOUNTS (please create these on first deploy):
+  //    admin@choircloud.com     / demo123   -> role: admin
+  //    president@choircloud.com / demo123   -> role: president
+  //    secretary@choircloud.com / demo123   -> role: secretary
+  //    provost@choircloud.com   / demo123   -> role: provost
+  //    custodian@choircloud.com / demo123   -> role: custodian
+  //    electoral@choircloud.com / demo123   -> role: electoral
+  //    miriam@choircloud.com    / demo123   -> role: member, section: Soprano
+  //
+  // 7. TOKEN HANDLING
+  //    - Frontend stores JWT in localStorage under key "avc_token"
+  //    - Frontend sends it as header: x-auth-token (interceptor in services/api.js)
+  //    - Backend should accept either `x-auth-token` or `Authorization: Bearer`
+  // ====================================================================
 
   useEffect(() => {
     if (!clientId) return;
@@ -40,8 +94,9 @@ export default function Login({ onSwitch }) {
         callback: (resp) => {
           try {
             const p = JSON.parse(atob(resp.credential.split('.')[1]));
-            startRef.current({ email: p.email, name: p.name, avatarUrl: p.picture, googleId: p.sub });
-          } catch { /* ignore */ }
+            // Send decoded Google profile to backend via /api/auth/google
+            startRef.current({ email: p.email, name: p.name, avatarUrl: p.picture, googleId: p.sub, idToken: resp.credential });
+          } catch { /* ignore bad token */ }
         },
       });
       g.disableAutoSelect();
@@ -62,6 +117,7 @@ export default function Login({ onSwitch }) {
     finally { setLoading(false); }
   };
 
+  // Sandbox fallback - used when VITE_GOOGLE_CLIENT_ID is not set (dev mode)
   const sandboxGoogle = () => startGoogleLogin({ email: 'google.chorister@gmail.com', name: 'Google Chorister', avatarUrl: null, googleId: 'sandbox-' + Date.now() });
 
   return (
