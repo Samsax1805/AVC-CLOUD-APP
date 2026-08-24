@@ -8,13 +8,20 @@ This application runs entirely in the browser using localStorage for data persis
 ✨ Features
 
 7 User Roles: Admin, President, Custodian, Secretary, Provost, Electoral and Member.
-Music Library: Upload, categorize, search, download, and play audio/PDF files.
-Debt Tracker: Track member dues, record payments, and export to CSV.
-Minutes & Receipts: Secretary can upload meeting minutes and member receipts.
-Voice Notes: Record and playback audio notes directly in the browser.
-Audit Logs: Track all system activities for security and accountability (President only).
-Responsive Design: Fully mobile-friendly with a hamburger menu for smaller screens.
-Multi-Currency: Toggle between Turkish Lira (₺) and US Dollar ($).
-Prerequisites
 
+Music Library: Upload, categorize, search, download, and play audio/PDF files.
+
+Debt Tracker: Track member dues, record payments, and export to CSV.
+
+Minutes & Receipts: Secretary can upload meeting minutes and member receipts.
+
+Voice Notes: Record and playback audio notes directly in the browser.
+
+Audit Logs: Track all system activities for security and accountability (President only).
+
+Responsive Design: Fully mobile-friendly with a hamburger menu for smaller screens.
+
+Multi-Currency: Toggle between Turkish Lira (₺) and US Dollar ($).
+
+Prerequisites
 Before you begin, ensure you have the following installed on your computer: -Node.js (Version 16 or higher recommended) - Download here -npm (Comes with Node.js)
