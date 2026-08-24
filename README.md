@@ -238,6 +238,4 @@ This project is licensed under the MIT License — see the LICENSE file for deta
 Built with ❤️ for the St. Barnabas Amazing Voices Choir
 "Sing Praises to the Lord" — Psalm 149:1
 
-<p align="center">
-<img src="client/public/choir_logo.jpeg" alt="AVC Logo" width="120" />
-</p>
+
