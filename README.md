@@ -114,7 +114,7 @@ Seven distinct roles, each with precisely scoped permissions:
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/christian1-malonga/AVC-CLOUD-APP.git
+git clone https://github.com/samsax1805/AVC-CLOUD-APP.git
 cd AVC-CLOUD-APP
 
 2. Start the backend
