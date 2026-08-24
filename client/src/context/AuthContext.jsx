@@ -1,62 +1,22 @@
 import React, { createContext, useContext, useState } from 'react';
-import { demoUsers } from '../data/mockData';
+import { seedUsers } from '../data/seed';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem('avc_user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(null);
 
-  const login = async (email, password) => {
-    const found = demoUsers.find(u => u.email === email && u.pass === password);
-    if (!found) throw new Error('Invalid credentials. Try: admin@choircloud.com / demo123');
-    const userData = { id: found.id, name: found.name, email: found.email, roles: found.roles, voice: found.voice };
-    localStorage.setItem('avc_user', JSON.stringify(userData));
-    setUser(userData);
-    return userData;
+  const login = async (email, pass) => {
+    const u = (seedUsers || []).find((x) => x.email === (email || '').toLowerCase());
+    if (!u || u.pass !== pass) throw new Error('Invalid credentials. Use password: demo123');
+    setUser(u); return u;
   };
+  const demoLogin = async (email) => { const u = (seedUsers || []).find((x) => x.email === email); if (u) setUser(u); return u; };
+  const googleLogin = async (p) => { const u = { id: 'g1', name: p?.name || 'Google Chorister', email: p?.email || 'google@avc.local', roles: ['member'], voice: null, color: '#475569' }; setUser(u); return u; };
+  const register = async () => ({ success: true });
+  const setSection = async (section) => setUser((u) => (u ? { ...u, voice: section } : u));
+  const logout = () => setUser(null);
 
-  const register = async (formData) => {
-    // Mock registration - just return success
-    return { success: true, message: 'Registration submitted for approval' };
-  };
-
-  const googleLogin = async (profile) => {
-    // Mock Google login
-    const userData = {
-      id: 'g-' + Date.now(),
-      name: profile.name || 'Google User',
-      email: profile.email,
-      roles: ['member'],
-      voice: null,
-    };
-    localStorage.setItem('avc_user', JSON.stringify(userData));
-    setUser(userData);
-    return userData;
-  };
-
-  const setSection = async (section) => {
-    const updated = { ...user, voice: section };
-    localStorage.setItem('avc_user', JSON.stringify(updated));
-    setUser(updated);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('avc_user');
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, login, register, googleLogin, setSection, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, login, demoLogin, googleLogin, register, setSection, logout }}>{children}</AuthContext.Provider>;
 };
-
 export const useAuth = () => useContext(AuthContext);
