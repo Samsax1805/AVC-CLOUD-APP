@@ -116,3 +116,128 @@ Seven distinct roles, each with precisely scoped permissions:
 ```bash
 git clone https://github.com/christian1-malonga/AVC-CLOUD-APP.git
 cd AVC-CLOUD-APP
+
+2. Start the backend
+cd server
+npm install
+cp .env.example .env        # edit with your MongoDB URI + JWT secret
+npm run seed                # creates the 7 demo accounts
+npm run dev                 # starts API on http://localhost:5000
+
+3. Start the frontend (in a new terminal)
+cd client
+npm install
+npm run dev                 # starts app on http://localhost:5173
+
+4. (Optional) Enable real Google Sign-In
+Go to Google Cloud Console → Credentials
+Create an OAuth 2.0 Client ID (Web application)
+Add http://localhost:5173 to Authorized JavaScript origins
+Copy the Client ID into client/.env:
+   VITE_GOOGLE_CLIENT_ID=xxxxxx.apps.googleusercontent.com
+
+Restart the frontend.
+Without this, the Google button runs in sandbox mode and signs you in as a demo Google account.
+
+🔑 Demo Accounts
+Every account uses the password demo123:
+
+Email                          Role                                    Purpose
+admin@choircloud.com           Admin                               Full system access
+president@choircloud.com      President                            Executive oversight
+secretary@choircloud.com      Secretary                            Minutes & documents
+provost@choircloud.com         Provost                          Discipline & attendance
+custodian@choircloud.com      Custodian                              Music library
+electoral@choircloud.com      Electoral                              Elections
+miriam@choircloud.com          Member                       Regular chorister (Soprano)
+
+
+🌐 API Endpoints (for the backend team)
+All endpoints are prefixed with /api.
+
+Authentication
+Method                      Endpoint                      Purpose
+POST                      /auth/login               Email + password login
+POST                     /auth/register             New member registration
+POST                      /auth/google                Google OAuth sign-in
+POST                      /auth/section               Set choir voice part
+POST                   /auth/forgot-password            Request reset link
+POST                   /auth/reset-password           Confirm password reset
+GET                         /auth/me                     Get current user
+
+
+Members
+Method                     Endpoint                       Purpose
+GET                        /members                   List all members
+PATCH                  /members/:id/role                 Update role
+POST                  /members/:id/approve          Approve pending member
+DELETE                    /members/:id                  Remove member
+
+Music
+Method                      Endpoint                       Purpose
+GET                          /songs                     List library
+POST                         /songs              Upload new song (multipart)
+PATCH                      /songs/:id                     Edit song
+DELETE                     /songs/:id                   Delete song
+
+
+Attendance, Debts, Dues, Minutes, Elections, Voice Notes, Receipts, Probation, Audit
+
+Similar CRUD shapes — see inline [BACKEND] comments in the frontend source for exact payloads.
+
+
+📂 Project Structure
+AVC-CLOUD-APP/
+├── client/                   # React + Vite frontend
+│   ├── public/               # Static assets (logo, favicon)
+│   ├── src/
+│   │   ├── components/       # AppShell, Sidebar, UI primitives
+│   │   ├── context/          # AuthContext, DataContext, ToastContext
+│   │   ├── data/             # Mock/seed data
+│   │   ├── hooks/            # usePermissions, use-mobile
+│   │   ├── pages/            # One file per feature (Login, Dashboard, etc.)
+│   │   ├── services/         # Axios API client
+│   │   ├── styles/           # Global CSS + themes
+│   │   ├── utils/            # Helpers, formatters
+│   │   ├── App.jsx           # Root component
+│   │   └── main.jsx          # Entry point
+│   ├── .env                  # VITE_GOOGLE_CLIENT_ID
+│   └── package.json
+│
+├── server/                   # Express + MongoDB backend
+│   ├── models/               # Mongoose schemas
+│   ├── routes/               # Express routers
+│   ├── middleware/           # Auth, upload, error handling
+│   ├── seed.js               # Demo user seeder
+│   └── package.json
+│
+├── README.md
+├── LICENSE
+└── .gitignore
+
+
+🎨 Design Philosophy
+Navy #1a2c60 + Gold #e9a63a — the choir's official colours
+Serif headings — dignified, hymnal-inspired typography
+Generous whitespace — calm, focused, distraction-free
+Motion with purpose — Framer Motion only where it adds meaning
+
+
+🤝 Contributing
+Contributions are welcome! Please:
+Fork the repository
+Create a feature branch (git checkout -b feature/amazing-feature)
+Commit your changes (git commit -m 'Add amazing feature')
+Push to the branch (git push origin feature/amazing-feature)
+Open a Pull Request
+
+📜 License
+This project is licensed under the MIT License — see the LICENSE file for details.
+
+🙏 Acknowledgments
+Built with ❤️ for the St. Barnabas Amazing Voices Choir
+"Sing Praises to the Lord" — Psalm 149:1
+
+<p align="center">
+<img src="client/public/choir_logo.jpeg" alt="AVC Logo" width="120" />
+</p>
