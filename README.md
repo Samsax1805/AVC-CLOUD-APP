@@ -129,6 +129,8 @@ cd client
 npm install
 npm run dev                 # starts app on http://localhost:5173
 
+** QRCODE EXTENSION INSTALLATION: npm install react-router-dom qrcode lucide-react socket.io-client
+
 4. (Optional) Enable real Google Sign-In
 Go to Google Cloud Console → Credentials
 Create an OAuth 2.0 Client ID (Web application)
