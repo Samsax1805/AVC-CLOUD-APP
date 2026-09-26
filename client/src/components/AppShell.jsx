@@ -6,39 +6,50 @@ import { ROLES, rolesOf, PERMS, NAV_DEFS, visibleNav, ACT_META } from '../hooks/
 import Icon from './ui/Icon';
 import Avatar from './ui/Avatar';
 import Dashboard from '../pages/Dashboard';
-import MusicLibrary from '../pages/MusicLibrary';
-import MinutesPage from '../pages/Minutes';
-import VoicePage from '../pages/VoiceNotes';
-import ReceiptsPage from '../pages/Receipts';
-import AttendancePage from '../pages/Attendance';
-import DebtsPage from '../pages/Debts';
-import DuesPage from '../pages/Dues';
-import ElectionsPage from '../pages/Elections';
-import AuditPage from '../pages/AuditLog';
-import MembersPage from '../pages/MembersRoles';
+// import MusicLibrary from '../pages/MusicLibrary';
+// import MinutesPage from '../pages/Minutes';
+// import VoicePage from '../pages/VoiceNotes';
+// import ReceiptsPage from '../pages/Receipts';
+// import AttendancePage from '../pages/Attendance';
+// import DebtsPage from '../pages/Debts';
+// import DuesPage from '../pages/Dues';
+// import ElectionsPage from '../pages/Elections';
+// import AuditPage from '../pages/AuditLog';
+// import MembersPage from '../pages/MembersRoles';
 import ProfilePage from '../pages/Profile';
-import AnnouncementsPage from '../pages/Announcements';
-import DocumentsPage from '../pages/Documents';
-import ProbationPage from '../pages/Probation';
+// import AnnouncementsPage from '../pages/Announcements';
+// import DocumentsPage from '../pages/Documents';
+// import ProbationPage from '../pages/Probation';
 
 export default function AppShell() {
   const data = useDataContext() || {};
   const auth = useAuth() || {};
 
-  const me = data.me || { id: 'u1', name: 'Adaeze Okafor', email: 'admin@choircloud.com', roles: ['admin'], voice: 'Alto', color: '#b45309' };
-  const notifs = data.notifs || [];
-  const setNotifs = data.setNotifs || (() => {});
-  const elections = data.elections || [];
-
+  // [FIX] ALL useState hooks MUST be declared BEFORE any early returns!
   const [page, setPage] = useState('dashboard');
   const [sideOpen, setSideOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [dark, setDark] = useState(false);
 
+  const me = data.me || null;
+  const notifs = data.notifs || [];
+  const setNotifs = data.setNotifs || (() => {});
+  const elections = data.elections || [];
+
+  // [FIX] Now it is safe to return early if the profile is still loading
+  if (!me) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', color: '#666', fontFamily: 'sans-serif', marginTop: '4rem' }}>
+        Loading your profile...
+      </div>
+    );
+  }
+
   const ctx = { ...data, me, setPage };
   const nav = (typeof visibleNav === 'function' ? visibleNav(me) : NAV_DEFS) || [];
   const liveElections = elections.filter((e) => e.status === 'live');
   const unread = notifs.filter((n) => !(n.readBy || []).includes(me.id)).length;
+
   const openNotifs = () => { setNotifOpen((o) => !o); if (!notifOpen) setNotifs((p) => (p || []).map((n) => ((n.readBy || []).includes(me.id) ? n : { ...n, readBy: [...(n.readBy || []), me.id] }))); };
   const sections = [...new Set(nav.map((n) => n.sec))];
 
@@ -94,10 +105,13 @@ export default function AppShell() {
           <button className="btn btn-pri full-sm" onClick={() => { setPage('music'); setSideOpen(false); }}><Icon name="plus" size={14} /> New Upload</button>
         </nav>
         <div className="side-user">
-          <Avatar user={me} size={36} />
-          <div style={{ flex: 1, minWidth: 0 }}><div className="su-name">{me.name}</div><div className="su-role">{rolesOf(me).map((r) => ROLES[r].label).join(' · ')}</div></div>
+          <button className="side-user-btn" onClick={() => setPage('profile')} title="Open my profile">
+  <Avatar user={me} size={36} />
+  <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}><div className="su-name">{me.name}</div><div className="su-role">{rolesOf(me).map((r) => ROLES[r].label).join(' · ')}</div></div>
+          </button>
           <button className="icon-btn light" title="Sign out" onClick={() => { auth.logout && auth.logout(); setNotifOpen(false); }}><Icon name="logout" size={16} /></button>
         </div>
+        
       </aside>
       <div className="main">
         <header className="topbar">
@@ -120,7 +134,7 @@ export default function AppShell() {
               )}
             </AnimatePresence>
           </div>
-          <span className="top-name">{me.name}</span>
+          <button className="top-name top-name-btn" onClick={() => setPage('profile')}>{me.name}</button>
           <button className="avatar-btn" onClick={() => setPage('profile')}><Avatar user={me} size={34} /></button>
         </header>
         <main className="content" onClick={() => notifOpen && setNotifOpen(false)}>

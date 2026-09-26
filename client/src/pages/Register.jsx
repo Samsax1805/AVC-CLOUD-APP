@@ -1,28 +1,72 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { initGoogleAuth, renderGoogleButton } from '../services/googleAuth';
+
+const GoogleMark = () => (
+  <svg aria-hidden="true" viewBox="0 0 24 24" className="g-mark">
+    <path fill="#4285F4" d="M21.35 12.23c0-.79-.07-1.55-.22-2.27H12v4.3h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.7 2.91-4.2 2.91-7.42Z" />
+    <path fill="#34A853" d="M12 21.7c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.53A9.74 9.74 0 0 0 12 21.7Z" />
+    <path fill="#FBBC05" d="M6.54 13.78A5.85 5.85 0 0 1 6.23 12c0-.62.11-1.22.31-1.78V7.69H3.3A9.73 9.73 0 0 0 2.27 12c0 1.57.38 3.05 1.03 4.31l3.24-2.53Z" />
+    <path fill="#EA4335" d="M12 6.19c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.28 14.63 2.3 12 2.3a9.74 9.74 0 0 0-8.7 5.39l3.24 2.53c.77-2.31 2.92-4.03 5.46-4.03Z" />
+  </svg>
+);
 
 export default function Register({ onSwitch }) {
-  const { register, startGoogleLogin } = useAuth();
+  const { register, googleLogin, sandboxLogin } = useAuth();
   const { toast } = useToast();
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
   const [form, setForm] = useState({ name: '', phone: '', email: '', password: '' });
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
+  const btnRef = useRef(null);
+
+  const googleLoginRef = useRef(googleLogin);
+  useEffect(() => { googleLoginRef.current = googleLogin; }, [googleLogin]);
+  const toastRef = useRef(toast);
+  useEffect(() => { toastRef.current = toast; }, [toast]);
+
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    initGoogleAuth(clientId, (resp) => {
+      googleLoginRef.current(resp.credential)
+        .then(() => toastRef.current('Signed in with Google'))
+        .catch((err) => toastRef.current(err.message || 'Google sign-in failed', 'err'));
+    })
+      .then(() => { if (!cancelled) setGoogleReady(true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [clientId]);
+
+  const attachButton = useCallback((node) => {
+    btnRef.current = node;
+    if (node && googleReady) renderGoogleButton(node);
+  }, [googleReady]);
+
+  useEffect(() => {
+    if (googleReady && btnRef.current) renderGoogleButton(btnRef.current);
+  }, [googleReady]);
+
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const submit = async (e) => {
+    const submit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone || !form.email || !form.password) return toast('All fields are required.', 'err');
     setLoading(true);
     try {
-      await register(form);
-      toast('Registration submitted for administrative approval.');
-      onSwitch();
-    } catch (err) { toast(err.response?.data?.msg || err.message || 'Registration failed.', 'err'); }
-    finally { setLoading(false); }
+      const result = await register(form);
+      toast('Account created — welcome to the choir! 🎉');
+      // [TESTING] If they were auto-logged-in, App switches to the dashboard by itself.
+      if (!result || !result.access) onSwitch();
+    } catch (err) {
+      toast(err.response?.data?.msg || err.message || 'Registration failed.', 'err');
+    } finally { setLoading(false); }
   };
-
+  
   return (
     <main className="reg-screen">
       <section className="reg-card">
@@ -42,10 +86,16 @@ export default function Register({ onSwitch }) {
           <button className="btn-slate" type="submit" disabled={loading}>{loading && <Loader2 size={16} className="spin" />} Register</button>
         </form>
         <div className="my-3 text-center text-sm text-white">or continue with</div>
-        <button className="btn-google2" type="button" onClick={() => startGoogleLogin({ email: 'google.chorister@gmail.com', name: 'Google Chorister', avatarUrl: null, googleId: 'sandbox-' + Date.now() })}>
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="g-mark"><path fill="#4285F4" d="M21.35 12.23c0-.79-.07-1.55-.22-2.27H12v4.3h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.7 2.91-4.2 2.91-7.42Z" /><path fill="#34A853" d="M12 21.7c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.53A9.74 9.74 0 0 0 12 21.7Z" /><path fill="#FBBC05" d="M6.54 13.78A5.85 5.85 0 0 1 6.23 12c0-.62.11-1.22.31-1.78V7.69H3.3A9.73 9.73 0 0 0 2.27 12c0 1.57.38 3.05 1.03 4.31l3.24-2.53Z" /><path fill="#EA4335" d="M12 6.19c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.28 14.63 2.3 12 2.3a9.74 9.74 0 0 0-8.7 5.39l3.24 2.53c.77-2.31 2.92-4.03 5.46-4.03Z" /></svg>
-        </button>
-        <p className="reg-foot">Already have an account? <button className="reg-link" onClick={onSwitch}>Sign in</button></p>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {clientId ? (
+            googleReady
+              ? <div ref={attachButton} />
+              : <button className="btn-google2" disabled><Loader2 size={16} className="spin" /> Loading Google…</button>
+          ) : (
+            <button className="btn-google2" type="button" onClick={() => sandboxLogin()}><GoogleMark /><span>Continue with Google</span></button>
+          )}
+        </div>
+        <p className="mt-5 text-center text-xs text-white">Already have an account? <button className="reg-link" onClick={onSwitch}>Sign in</button></p>
       </section>
     </main>
   );
