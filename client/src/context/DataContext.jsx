@@ -3,7 +3,8 @@ import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import api from '../services/api';
 import { uid, TODAY } from '../utils/helpers';
-import { rolesOf, ROLES } from '../hooks/usePermissions';
+import { fileUrl } from '../services/files';
+import { rolesOf, ROLES, participates } from '../hooks/usePermissions';
 
 const DataContext = createContext(null);
 
@@ -91,16 +92,52 @@ export const DataProvider = ({ children }) => {
     return () => clearTimeout(t);
   }, [users, songs, minutes, receipts, voiceNotes, sessions, debts, dues, elections, nominations, audit, pendingUsers, roleHistory, duesSettings, announcements, documents, probations, notifs, pendingNoms, user, loadingData]);
 
-  useEffect(() => { if (!playId) return; const t = setInterval(() => setPlayProg((p) => Math.min(100, p + 1.4)), 100); return () => clearInterval(t); }, [playId]);
-  useEffect(() => { if (playProg >= 100) { setPlayId(null); setPlayProg(0); } }, [playProg]);
+  // One shared player: real audio for uploaded files, a simulated progress bar for older records
+  const audio = useRef(null);
+  const realAudio = useRef(false);
+  const stopAudio = () => { if (audio.current) { audio.current.pause(); audio.current.src = ''; } realAudio.current = false; };
+  useEffect(() => { if (!playId || realAudio.current) return; const t = setInterval(() => setPlayProg((p) => Math.min(100, p + 1.4)), 100); return () => clearInterval(t); }, [playId]);
+  useEffect(() => { if (playProg >= 100) { setPlayId(null); setPlayProg(0); stopAudio(); } }, [playProg]);
+  useEffect(() => stopAudio, []);
 
   const me = users.find((u) => u.email === user?.email) || null;
 
   const log = (action, detail) => setAudit((p) => [{ id: uid('a'), userId: me?.id || 'system', role: me ? rolesOf(me).map((r) => ROLES[r].label).join(' + ') : 'System', action, detail, time: new Date().toISOString().slice(0, 16).replace('T', ' ') }, ...(p || [])]);
   const notify = (text) => setNotifs((p) => [{ id: uid('n'), text, date: TODAY, readBy: [] }, ...(p || [])]);
-  const togglePlay = (id) => { if (playId === id) { setPlayId(null); setPlayProg(0); } else { setPlayId(id); setPlayProg(0); } };
+  const togglePlay = async (id, fileId) => {
+    stopAudio();
+    if (playId === id) { setPlayId(null); setPlayProg(0); return; }
+    setPlayProg(0);
+    if (!fileId) { setPlayId(id); return; }
+    realAudio.current = true;
+    setPlayId(id);
+    try {
+      if (!audio.current) audio.current = new Audio();
+      const a = audio.current;
+      a.ontimeupdate = () => a.duration && setPlayProg(Math.min(99.9, (a.currentTime / a.duration) * 100));
+      a.onended = () => setPlayProg(100);
+      a.src = await fileUrl(fileId);
+      await a.play();
+    } catch (e) { stopAudio(); setPlayId(null); toast(e.message || 'Could not play this file', 'err'); }
+  };
 
-  const value = { me, loadingData, users, setUsers, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  // users = everyone (deactivated included, so history keeps names);
+  // activeUsers = can sign in; members = take part in attendance, dues & elections
+  const activeUsers = users.filter((u) => (u.status || 'active') === 'active');
+  const members = users.filter(participates);
+
+  // approve | reject | deactivate | reactivate — the server checks who may do what
+  const memberAction = async (action, person) => {
+    await api.post(`/members/${person.id}/${action}`).catch((e) => { throw new Error(e.response?.data?.msg || `Could not ${action} member`); });
+    if (action === 'approve') { setPendingUsers((p) => p.filter((x) => x.id !== person.id)); setUsers((p) => [...p, { ...person, status: 'active' }]); }
+    if (action === 'reject') setPendingUsers((p) => p.filter((x) => x.id !== person.id));
+    if (action === 'deactivate' || action === 'reactivate') {
+      const status = action === 'deactivate' ? 'deactivated' : 'active';
+      setUsers((p) => p.map((x) => (x.id === person.id ? { ...x, status } : x)));
+    }
+  };
+
+  const value = { me, loadingData, users, setUsers, activeUsers, members, memberAction, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

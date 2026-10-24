@@ -143,6 +143,49 @@ button.chip:hover{background:var(--navy2)}
 .progress div,.mini-progress div{height:100%;background:var(--gold);border-radius:99px;transition:width .5s}
 .mini-progress{width:70px;height:6px;background:#e8ddc6;border-radius:99px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:8px}
 .empty{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--mut);padding:44px;font-size:13.5px;background:var(--card);border:1.5px dashed var(--line);border-radius:10px}
+/* ===== BIRTHDAYS ===== */
+.bday-card{position:relative;overflow:hidden;display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:22px 26px;border-radius:14px;color:#fff;background:linear-gradient(120deg,#e11d48 0%,#f97316 30%,#e9a63a 55%,#7c3aed 80%,#0284c7 100%);background-size:220% 220%;animation:bday-shift 9s ease infinite;box-shadow:0 12px 30px rgba(225,29,72,.25)}
+.bday-card h3{color:#fff;font-size:22px;margin:4px 0 6px;text-shadow:0 2px 8px rgba(0,0,0,.18)}
+.bday-card p{font-size:13.5px;line-height:1.6;max-width:620px;opacity:.95}
+.bday-kicker{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;background:rgba(255,255,255,.22);padding:4px 10px;border-radius:999px}
+.bday-text{flex:1;min-width:220px;position:relative;z-index:1}
+.bday-next{margin-top:10px;font-size:12px;font-weight:600;opacity:.9}
+.bday-avatars{display:flex;position:relative;z-index:1}
+.bday-av{border:3px solid #fff;border-radius:50%;margin-left:-14px;box-shadow:0 6px 16px rgba(0,0,0,.2);animation:bday-bob 2.4s ease-in-out infinite;background:#fff}
+.bday-av:first-child{margin-left:0}
+.bday-av:nth-child(2){animation-delay:.3s}.bday-av:nth-child(3){animation-delay:.6s}.bday-av:nth-child(4){animation-delay:.9s}
+.bday-more{width:58px;height:58px;margin-left:-14px;border-radius:50%;border:3px solid #fff;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-weight:800}
+.bday-sparks{position:absolute;inset:0;pointer-events:none}
+.bday-sparks span{position:absolute;bottom:-28px;font-size:20px;opacity:.85;animation:bday-float 6s linear infinite}
+.bday-soon{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;font-size:13px;color:#4c1d95;background:linear-gradient(90deg,#fdf2f8,#fef3c7,#ede9fe);border:1px solid #f5d0fe}
+.bday-soon-ic{font-size:20px}
+.bday-when{display:inline-block;font-size:11px;font-weight:700;color:#be185d;background:#fce7f3;padding:1px 8px;border-radius:999px}
+@keyframes bday-shift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes bday-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes bday-float{0%{transform:translateY(0) rotate(0);opacity:0}10%{opacity:.85}100%{transform:translateY(-190px) rotate(25deg);opacity:0}}
+@media (prefers-reduced-motion: reduce){.bday-card,.bday-av,.bday-sparks span{animation:none}.bday-sparks{display:none}}
+.shell.dark .bday-soon{background:linear-gradient(90deg,#3b0764,#4a2a07,#1e1b4b);border-color:#6b21a8;color:#f5d0fe}
+/* ===== VOICE NOTE GRID ===== */
+.vn-card{display:flex;flex-direction:column;gap:12px}
+.vn-card-top{display:flex;align-items:center;gap:12px}
+.vn-card .vn-main{width:auto;flex:1;min-width:0}
+.vn-card .vn-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vn-card-foot{display:flex;align-items:center;gap:8px}
+.card .rec-card{padding:14px 16px;border:1.5px dashed var(--gold);border-radius:10px}
+/* ===== SONG PREVIEW ===== */
+.song-cover.has-preview{background:#fff !important;padding:0;overflow:hidden;height:170px}
+.song-cover.has-preview img{width:100%;height:100%;object-fit:cover;object-position:top}
+.upload-drop{display:flex;align-items:center;gap:14px;padding:14px;border:1.5px dashed var(--line);border-radius:10px;background:#fff;cursor:pointer}
+.upload-drop:hover{border-color:var(--gold)}
+.upload-preview{width:96px;height:124px;border:1px solid var(--line);border-radius:6px;object-fit:cover;object-position:top;background:#fff;flex-shrink:0}
+/* ===== PAGINATION ===== */
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px}
+.pager-btns{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.pager-btn{min-width:32px;height:32px;padding:0 9px;border-radius:6px;border:1.5px solid var(--line);background:#fff;color:var(--ink);font-size:12.5px;font-weight:600;transition:.15s}
+.pager-btn:hover:not(:disabled){border-color:var(--gold)}
+.pager-btn.on{background:var(--navy);border-color:var(--navy);color:var(--gold)}
+.pager-btn:disabled{opacity:.4;cursor:default}
+.pager-gap{padding:0 4px;color:var(--mut)}
 .info-card{display:flex;gap:11px;align-items:center;background:#fdf3df;border-color:var(--gold);color:#7a5a17;font-size:13px}
 /* ===== TABLES ===== */
 .tbl{width:100%;border-collapse:collapse;font-size:13px}
@@ -266,6 +309,8 @@ button.chip:hover{background:var(--navy2)}
 .shell.dark .main{background:#0f1c3c}
 .shell.dark .topbar{background:#0f1c3c;border-color:#263a66}
 .shell.dark .card{background:#152449;border-color:#263a66}
+.shell.dark .pager-btn{background:#152449;border-color:#263a66;color:#eee7d6}
+.shell.dark .pager-btn.on{background:var(--gold);border-color:var(--gold);color:var(--navy)}
 .shell.dark h2,.shell.dark h3,.shell.dark h4,.shell.dark .stat-val,.shell.dark .top-name{color:#eee7d6}
 .shell.dark .muted{color:#9aa5c4}
 .shell.dark .tbl td{border-color:#263a66}

@@ -9,6 +9,23 @@ const KEYS = {
   duesSettings: R.DuesSetting, notifs: R.Notification,
 };
 
+// Executive roles that admins and the president may grant (README role table),
+// plus 'alumni' (Old Member: view-only, replaces any executive role).
+// Only an admin may grant or remove 'admin', and the last admin can't be removed.
+const GRANTABLE = ['president', 'secretary', 'provost', 'custodian', 'electoral', 'alumni'];
+const MANAGERS = ['admin', 'president'];
+
+const nextRoles = (actorRoles, current, requested, adminCount) => {
+  const isAdmin = actorRoles.includes('admin');
+  if (!actorRoles.some((r) => MANAGERS.includes(r))) return current;
+  let out = (requested || []).filter((r) => GRANTABLE.includes(r));
+  if (out.includes('alumni')) out = ['alumni'];
+  const hadAdmin = current.includes('admin');
+  const wantsAdmin = (requested || []).includes('admin');
+  if (isAdmin ? (wantsAdmin || (hadAdmin && adminCount <= 1)) : hadAdmin) out.unshift('admin');
+  return out.length ? out : ['member'];
+};
+
 const mapMember = (u) => ({
   id: u._id.toString(), name: u.name, email: u.email,
   roles: u.roles || ['member'], voice: u.section || null, section: u.section || null,
@@ -31,7 +48,8 @@ exports.getAll = async (req, res) => {
     out.pendingNoms = out.pendingNoms || [];
 
     const all = await User.find().lean();
-    out.users = all.filter((u) => u.status === 'active').map(mapMember);
+    // Deactivated members stay in the list (status shown) so their history keeps its names
+    out.users = all.filter((u) => u.status !== 'pending').map(mapMember);
     out.pendingUsers = all.filter((u) => u.status === 'pending').map(mapMember);
     res.json(out);
   } catch (e) {
@@ -60,21 +78,22 @@ exports.putAll = async (req, res) => {
         await R.Misc.updateOne({ key }, { key, data: body[key] }, { upsert: true });
       }
     }
+    // Account status (approve / reject / deactivate / reactivate) only changes via /api/members
     if (Array.isArray(body.users)) {
+      const actorRoles = req.user.roles || [];
       for (const mu of body.users) {
         const q = mongoose.isValidObjectId(mu.id) ? { _id: mu.id } : { email: (mu.email || '').toLowerCase() };
-        await User.updateOne(q, {
+        const existing = await User.findOne(q).lean();
+        if (!existing || existing.status === 'pending') continue;
+        const adminCount = await User.countDocuments({ roles: 'admin', status: 'active' });
+        await User.updateOne({ _id: existing._id }, {
           $set: {
-            name: mu.name, roles: mu.roles || ['member'], section: mu.voice || mu.section || null,
+            name: mu.name, roles: nextRoles(actorRoles, existing.roles || ['member'], mu.roles, adminCount),
+            section: mu.voice || mu.section || null,
             avatar: mu.avatar || null, dob: mu.dob || '', country: mu.country || '', phone: mu.phone || '',
-            status: mu.status || 'active',
           },
         });
       }
-    }
-    if (Array.isArray(body.pendingUsers)) {
-      const keep = body.pendingUsers.map((p) => (p.email || '').toLowerCase());
-      await User.deleteMany({ status: 'pending', email: { $nin: keep } });
     }
     res.json({ ok: true });
   } catch (e) {

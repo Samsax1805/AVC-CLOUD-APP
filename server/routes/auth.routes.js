@@ -4,7 +4,8 @@ const auth = require('../middleware/auth');
 const r = express.Router();
 
 r.post('/login', c.login);
-r.post('/demo', c.demo);
+// Password-less demo login: local development only, never in production
+if (process.env.NODE_ENV !== 'production') r.post('/demo', c.demo);
 r.post('/register', c.register);
 r.post('/google', c.google);
 r.post('/section', auth, c.section);

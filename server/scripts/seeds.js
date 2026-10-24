@@ -14,6 +14,10 @@ const users = [
 ];
 
 (async () => {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ Refusing to create demo accounts (password demo123) on a production database.');
+    process.exit(1);
+  }
   try {
     await connectDB();
     const hash = bcrypt.hashSync('demo123', 10);

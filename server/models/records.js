@@ -4,7 +4,7 @@ const opts = { timestamps: true, strict: false };
 
 const uidField = { type: String, unique: true, index: true };
 
-const Song = model('Song', new Schema({ uid: uidField, title: String, part: String, format: String, size: String, duration: String, by: String, date: String, tag: String, cover: String, fileUrl: String }, opts));
+const Song = model('Song', new Schema({ uid: uidField, title: String, part: String, format: String, size: String, duration: String, by: String, date: String, tag: String, cover: String, fileUrl: String, fileName: String, mime: String, preview: String }, opts));
 
 const Session = model('Session', new Schema({
   uid: uidField, date: String, title: String,
@@ -23,7 +23,7 @@ const Election = model('Election', new Schema({
 
 const Minute = model('Minute', new Schema({ uid: uidField, title: String, body: String, date: String, by: String, roleAtTime: String }, opts));
 
-const VoiceNote = model('VoiceNote', new Schema({ uid: uidField, title: String, duration: String, by: String, date: String, seed: Number, fileUrl: String }, opts));
+const VoiceNote = model('VoiceNote', new Schema({ uid: uidField, title: String, duration: String, by: String, date: String, seed: Number, fileUrl: String, fileName: String, mime: String, source: String }, opts));
 
 const Receipt = model('Receipt', new Schema({ uid: uidField, title: String, amount: Number, category: String, date: String, by: String, fileUrl: String }, opts));
 

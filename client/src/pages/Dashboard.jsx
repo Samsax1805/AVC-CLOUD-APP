@@ -2,11 +2,12 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
 import { TODAY, naira, fmtDate, shortDate, PIE_COLORS, duesNow } from '../utils/helpers';
-import { PERMS, rolesOf, ACT_META } from '../hooks/usePermissions';
+import { PERMS, rolesOf, ACT_META, participates } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
 import RoleChip from '../components/ui/RoleChip';
 import StatCard from '../components/ui/StatCard';
+import BirthdayBanner from '../components/BirthdayBanner';
 
 const EmptyChart = ({ text }) => (
   <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b7f6a', fontSize: 13, textAlign: 'center', padding: '0 24px' }}>
@@ -16,7 +17,7 @@ const EmptyChart = ({ text }) => (
 
 export default function Dashboard({ ctx }) {
   const {
-    me, users = [], songs = [], sessions = [], debts = [], dues = [], audit = [], elections = [],
+    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], audit = [], elections = [],
     minutes = [], probations = [], duesSettings = [], pendingUsers = [], announcements = [], setPage,
   } = ctx || {};
 
@@ -43,7 +44,7 @@ export default function Dashboard({ ctx }) {
   const canSeeActivity = PERMS.viewAudit(me); // [FIX] officers only
 
   const cards = [];
-  if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: users.length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });
+  if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: activeUsers.length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });
   if (PERMS.manageDebts(me)) cards.push({ icon: 'coins', label: 'Outstanding debts', value: naira(outstanding), tone: '#e11d48' });
   if (PERMS.manageDuesSettings(me)) cards.push({ icon: 'dollar', label: 'Current weekly dues', value: naira(duesNow(duesSettings)), sub: duesSettings.length ? `since ${fmtDate(duesNow.date || duesSettings[duesSettings.length - 1]?.effectiveFrom)}` : 'not set yet', tone: '#0f766e' });
   if (PERMS.markAttendance(me)) cards.push({ icon: 'check', label: 'Last attendance', value: (attStats[attStats.length - 1]?.rate || 0) + '%', sub: attStats.length ? shortDate(attStats[attStats.length - 1].date) : 'no sessions yet', tone: '#059669' });
@@ -61,7 +62,9 @@ export default function Dashboard({ ctx }) {
 
   return (
     <div className="stack">
-      {liveE && !liveE.choice?.[me.id] && (
+      <BirthdayBanner users={users} me={me} />
+
+      {liveE && participates(me) && !liveE.choice?.[me.id] && (
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="banner">
           <span className="live-dot" /> Voting is <b>live</b> for the <b>{liveE.post}</b> post — your voice counts!
           <button className="btn btn-sm btn-white" onClick={() => setPage('elections')}>Vote now →</button>

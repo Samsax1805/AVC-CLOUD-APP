@@ -29,8 +29,8 @@ exports.login = async (req, res) => {
   const user = await User.findOne({ email: (email || '').toLowerCase() });
   if (!user || !user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash))
     return res.status(401).json({ msg: 'Invalid credentials' });
-  if (user.status === 'pending') return res.status(403).json({ msg: 'Account awaiting admin approval' });
-  if (user.status === 'deactivated') return res.status(403).json({ msg: 'Account deactivated' });
+  if (user.status === 'pending') return res.status(403).json({ msg: 'Your account is awaiting approval by the President or Provost.' });
+  if (user.status === 'deactivated') return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' });
   res.json({ access: sign(user), user: publicUser(user) });
 };
 
@@ -41,35 +41,25 @@ exports.demo = async (req, res) => {
   res.json({ access: sign(user), user: publicUser(user) });
 };
 
-// [TESTING MODE] Approval DISABLED — new members are active & logged in immediately.
-exports.register = async (req, res) => {
-  const { name, phone, email, password } = req.body || {};
-  if (!name || !email || !password) return res.status(400).json({ msg: 'All fields are required' });
-  if (await User.findOne({ email: (email || '').toLowerCase() })) return res.status(400).json({ msg: 'Email already registered' });
+// Emails the President and Provost (or the admins, if neither role is held yet)
+const notifyApprovers = async (member) => {
+  let approvers = await User.find({ status: 'active', roles: { $in: ['president', 'provost'] } }, { email: 1 }).lean();
+  if (!approvers.length) approvers = await User.find({ status: 'active', roles: 'admin' }, { email: 1 }).lean();
+  await emailService.sendNewMemberAlert(approvers.map((a) => a.email), member);
+};
 
+// New members wait for approval by the President or Provost before they can sign in
+exports.register = async (req, res) => {
+  const { name, phone, email, password, dob } = req.body || {};
+  if (!name || !email || !password || !dob) return res.status(400).json({ msg: 'All fields are required' });
+  if (await User.findOne({ email: (email || '').toLowerCase() })) return res.status(400).json({ msg: 'Email already registered' });
   const user = await User.create({
-    name,
-    phone,
-    email: email.toLowerCase(),
-    passwordHash: bcrypt.hashSync(password, 10),
-    roles: ['member'],
-    status: 'active',      // [TESTING] was: 'pending' (admin approval)
-    provider: 'local',
+    name, phone, dob, email: email.toLowerCase(), passwordHash: bcrypt.hashSync(password, 10),
+    roles: ['member'], status: 'pending', provider: 'local',
   });
-
-  // [TESTING] Send a token back so the frontend logs them in straight away
-  res.json({ access: sign(user), user: publicUser(user) });
+  notifyApprovers(user);
+  res.json({ success: true, pending: true, message: 'Registration submitted — the President or Provost will approve your account.' });
 };
-
-/* ================= RESTORE THIS WHEN TESTING IS DONE =================
-exports.register = async (req, res) => {
-  const { name, phone, email, password } = req.body || {};
-  if (!name || !email || !password) return res.status(400).json({ msg: 'All fields are required' });
-  if (await User.findOne({ email: (email || '').toLowerCase() })) return res.status(400).json({ msg: 'Email already registered' });
-  await User.create({ name, phone, email: email.toLowerCase(), passwordHash: bcrypt.hashSync(password, 10), roles: ['member'], status: 'pending', provider: 'local' });
-  res.json({ success: true, message: 'Registration submitted for approval' });
-};
-===================================================================== */
 
 exports.google = async (req, res) => {
   try {
@@ -97,9 +87,11 @@ exports.google = async (req, res) => {
         avatar: payload.picture,
         roles: ['member'],
         section: null,
-        status: 'active',
+        status: 'pending',
         provider: 'google', // [FIX] Mark as Google provider so frontend triggers setup
       });
+      notifyApprovers(user);
+      return res.status(403).json({ pending: true, msg: 'Registration submitted — the President or Provost will approve your account.' });
     } else {
       // [FIX] Keep stored profile in sync with Google on every login
       user.name = payload.name || user.name;
@@ -109,7 +101,8 @@ exports.google = async (req, res) => {
       await user.save();
     }
 
-    if (user.status !== 'active') return res.status(403).json({ msg: 'Account not active' });
+    if (user.status === 'pending') return res.status(403).json({ pending: true, msg: 'Your account is awaiting approval by the President or Provost.' });
+    if (user.status !== 'active') return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' });
     res.json({ access: sign(user), user: publicUser(user) });
   } catch (e) {
     console.error('Google auth error:', e.message);

@@ -69,17 +69,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-    // [TESTING] Register now logs the new member in immediately
+  // New members wait for approval by the President or Provost — no login until then
   const register = async (payload) => {
     try {
       const { data } = await api.post('/auth/register', payload);
-      if (data.access && data.user) return finish(mapUser(data.user), data.access); // instant login
-      return data; // old approval-flow shape (for later)
+      return data;
     } catch (e) {
       if (!backendDown(e)) throw new Error(e.response?.data?.msg || 'Registration failed');
-      // Offline fallback so testing never stops
-      const u = { id: 'u-' + Date.now(), name: payload.name, email: (payload.email || '').toLowerCase(), roles: ['member'], section: null, voice: null, avatar: null, phone: payload.phone || '', provider: 'local' };
-      return finish(u, null);
+      throw new Error('The server is unreachable — please try again in a moment.');
     }
   };
 

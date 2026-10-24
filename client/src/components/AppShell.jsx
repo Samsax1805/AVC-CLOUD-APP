@@ -6,20 +6,20 @@ import { ROLES, rolesOf, PERMS, NAV_DEFS, visibleNav, ACT_META } from '../hooks/
 import Icon from './ui/Icon';
 import Avatar from './ui/Avatar';
 import Dashboard from '../pages/Dashboard';
-// import MusicLibrary from '../pages/MusicLibrary';
-// import MinutesPage from '../pages/Minutes';
-// import VoicePage from '../pages/VoiceNotes';
-// import ReceiptsPage from '../pages/Receipts';
-// import AttendancePage from '../pages/Attendance';
-// import DebtsPage from '../pages/Debts';
-// import DuesPage from '../pages/Dues';
-// import ElectionsPage from '../pages/Elections';
-// import AuditPage from '../pages/AuditLog';
-// import MembersPage from '../pages/MembersRoles';
+import MusicLibrary from '../pages/MusicLibrary';
+import MinutesPage from '../pages/Minutes';
+import VoicePage from '../pages/VoiceNotes';
+import ReceiptsPage from '../pages/Receipts';
+import AttendancePage from '../pages/Attendance';
+import DebtsPage from '../pages/Debts';
+import DuesPage from '../pages/Dues';
+import ElectionsPage from '../pages/Elections';
+import AuditPage from '../pages/AuditLog';
+import MembersPage from '../pages/MembersRoles';
 import ProfilePage from '../pages/Profile';
-// import AnnouncementsPage from '../pages/Announcements';
-// import DocumentsPage from '../pages/Documents';
-// import ProbationPage from '../pages/Probation';
+import AnnouncementsPage from '../pages/Announcements';
+import DocumentsPage from '../pages/Documents';
+import ProbationPage from '../pages/Probation';
 
 export default function AppShell() {
   const data = useDataContext() || {};

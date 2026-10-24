@@ -18,7 +18,7 @@ export default function Register({ onSwitch }) {
   const { toast } = useToast();
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-  const [form, setForm] = useState({ name: '', phone: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', dob: '', password: '' });
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
@@ -55,13 +55,12 @@ export default function Register({ onSwitch }) {
 
     const submit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.phone || !form.email || !form.password) return toast('All fields are required.', 'err');
+    if (!form.name || !form.phone || !form.email || !form.dob || !form.password) return toast('All fields are required.', 'err');
     setLoading(true);
     try {
       const result = await register(form);
-      toast('Account created — welcome to the choir! 🎉');
-      // [TESTING] If they were auto-logged-in, App switches to the dashboard by itself.
-      if (!result || !result.access) onSwitch();
+      toast(result?.message || 'Registration submitted — you can sign in once the President or Provost approves you.');
+      onSwitch();
     } catch (err) {
       toast(err.response?.data?.msg || err.message || 'Registration failed.', 'err');
     } finally { setLoading(false); }
@@ -78,6 +77,8 @@ export default function Register({ onSwitch }) {
           <input id="reg-phone" className="input" value={form.phone} onChange={update('phone')} placeholder="Enter your phone number" />
           <label className="label light" htmlFor="reg-email">Email address</label>
           <input id="reg-email" type="email" className="input" value={form.email} onChange={update('email')} placeholder="Enter your email address" />
+          <label className="label light" htmlFor="reg-dob">Date of birth</label>
+          <input id="reg-dob" type="date" className="input" value={form.dob} onChange={update('dob')} max={new Date().toISOString().slice(0, 10)} />
           <label className="label light" htmlFor="reg-pass">Password</label>
           <div className="relative">
             <input id="reg-pass" className="input" type={show ? 'text' : 'password'} value={form.password} onChange={update('password')} placeholder="Enter your password" style={{ paddingRight: 38 }} />
