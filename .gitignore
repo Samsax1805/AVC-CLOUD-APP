@@ -7,4 +7,3 @@ build/
 *.log
 .DS_Store
 .vscode/
-server/
