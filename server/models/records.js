@@ -21,6 +21,11 @@ const Election = model('Election', new Schema({
   votes: { type: Map, of: Number }, votedIds: [String], choice: { type: Map, of: String }, created: String,
 }, opts));
 
+// Secret ballots: who chose whom never leaves the server; the unique index allows one vote per member per poll
+const BallotSchema = new Schema({ electionId: { type: String, index: true }, userId: String, candId: String }, opts);
+BallotSchema.index({ electionId: 1, userId: 1 }, { unique: true });
+const Ballot = model('Ballot', BallotSchema);
+
 const Minute = model('Minute', new Schema({ uid: uidField, title: String, body: String, date: String, by: String, roleAtTime: String }, opts));
 
 const VoiceNote = model('VoiceNote', new Schema({ uid: uidField, title: String, duration: String, by: String, date: String, seed: Number, fileUrl: String, fileName: String, mime: String, source: String }, opts));
@@ -45,4 +50,4 @@ const Notification = model('Notification', new Schema({ uid: uidField, text: Str
 
 const Misc = model('Misc', new Schema({ key: { type: String, unique: true }, data: Schema.Types.Mixed }, opts));
 
-module.exports = { Song, Session, Debt, Due, Election, Minute, VoiceNote, Receipt, Announcement, ChoirDocument, Probation, AuditLog, DuesSetting, Notification, Misc };
+module.exports = { Song, Session, Debt, Due, Election, Ballot, Minute, VoiceNote, Receipt, Announcement, ChoirDocument, Probation, AuditLog, DuesSetting, Notification, Misc };

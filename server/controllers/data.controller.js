@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const R = require('../models/records');
+const elections = require('./elections.controller');
 
 const KEYS = {
   songs: R.Song, sessions: R.Session, debts: R.Debt, dues: R.Due, elections: R.Election,
@@ -41,6 +42,7 @@ exports.getAll = async (req, res) => {
       const docs = await M.find().lean();
       out[key] = docs.map(({ _id, __v, createdAt, updatedAt, ...rest }) => ({ ...rest, id: rest.uid }));
     }
+    out.elections = await elections.listFor(req.user.id); // vote totals only, never who chose whom
     const misc = await R.Misc.find().lean();
     misc.forEach((m) => { out[m.key] = m.data; });
     out.nominations = out.nominations || {};
@@ -65,6 +67,34 @@ exports.getAll = async (req, res) => {
 const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'custodian', 'electoral'];
 const MAX_DELETES_PER_SAVE = 3;
 
+// Polls: the Electoral Committee (and admins) create, edit and delete them; only the President
+// (or an admin) takes one live; votes are never written here — only POST /api/elections/:id/vote counts them.
+const COMMITTEE = ['admin', 'electoral'];
+const GO_LIVE = ['admin', 'president'];
+const saveElection = async (item, roles) => {
+  const has = (list) => !roles.includes('alumni') && roles.some((r) => list.includes(r));
+  const id = item.id || item.uid;
+  const existing = await R.Election.findOne({ uid: id }).lean();
+  if (!existing) {
+    if (!has(COMMITTEE)) return;
+    const candidateIds = [...new Set(item.candidateIds || [])];
+    await R.Election.create({
+      uid: id, post: item.post, candidateIds, status: 'draft', created: item.created,
+      votes: Object.fromEntries(candidateIds.map((c) => [c, 0])), votedIds: [],
+    });
+    return;
+  }
+  const $set = {};
+  if (existing.status === 'draft' && has(COMMITTEE)) {
+    if (item.post) $set.post = item.post;
+    if (Array.isArray(item.candidateIds)) $set.candidateIds = [...new Set(item.candidateIds)];
+  }
+  const next = item.status;
+  if (next === 'live' && existing.status === 'draft' && has(GO_LIVE)) $set.status = 'live';
+  if (next === 'closed' && existing.status === 'live' && has([...COMMITTEE, ...GO_LIVE])) { $set.status = 'closed'; $set.closed = item.closed; }
+  if (Object.keys($set).length) await R.Election.updateOne({ uid: id }, { $set });
+};
+
 exports.putAll = async (req, res) => {
   try {
     const body = req.body || {};
@@ -82,7 +112,8 @@ exports.putAll = async (req, res) => {
         console.warn(`PUT /data refused: would delete ${removed.length} ${key} (user ${req.user.id})`);
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
       }
-      plan.push({ M, items: body[key], removed: isOfficer ? removed : [] });
+      const mayDelete = key === 'elections' ? actorRoles.some((r) => COMMITTEE.includes(r)) && !actorRoles.includes('alumni') : isOfficer;
+      plan.push({ key, M, items: body[key], removed: mayDelete ? removed : [] });
     }
     for (const key of ['roleHistory', 'nominations']) {
       if (body[key] === undefined) continue;
@@ -92,14 +123,18 @@ exports.putAll = async (req, res) => {
       if (!isOfficer || after < before) delete body[key]; // only officers write these, and they never shrink
     }
 
-    for (const { M, items, removed } of plan) {
+    for (const { key, M, items, removed } of plan) {
       for (const item of items) {
         const id = item && (item.id || item.uid);
         if (!id) continue;
+        if (key === 'elections') { await saveElection(item, actorRoles); continue; }
         const { id: _drop, ...rest } = item;
         await M.updateOne({ uid: id }, { $set: { ...rest, uid: id } }, { upsert: true });
       }
-      if (removed.length) await M.deleteMany({ uid: { $in: removed } });
+      if (removed.length) {
+        await M.deleteMany({ uid: { $in: removed } });
+        if (key === 'elections') await R.Ballot.deleteMany({ electionId: { $in: removed } });
+      }
     }
     for (const key of ['nominations', 'roleHistory', 'pendingNoms']) {
       if (body[key] !== undefined) {
