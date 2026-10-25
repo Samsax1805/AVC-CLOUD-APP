@@ -1,36 +1,45 @@
 import api from './api';
 
-export const MAX_UPLOAD_MB = 25;
+export const MAX_UPLOAD_MB = 100;
 
-// Uploads a File/Blob to the server's file store; returns { id, name, size, type }
+// Files live in private S3 storage. The server hands out short-lived signed links and
+// the browser uploads/downloads directly, so big files never pass through our server.
+// Returns { id, name, size, type }
 export const uploadFile = async (file, name = file.name || 'file') => {
   if (file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`File is larger than ${MAX_UPLOAD_MB} MB`);
+  const type = file.type || 'application/octet-stream';
+  let slot;
   try {
-    const { data } = await api.post('/files', file, {
-      headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(name) },
-    });
-    return data;
+    ({ data: slot } = await api.post('/files/upload-url', { name, type, size: file.size }));
   } catch (e) {
     throw new Error(e.response?.data?.msg || 'Upload failed');
   }
+  const res = await fetch(slot.uploadUrl, { method: 'PUT', headers: slot.headers, body: file }).catch(() => null);
+  if (!res || !res.ok) throw new Error('Upload failed — check your connection and try again');
+  return { id: slot.id, name: slot.name, size: slot.size, type: slot.type };
 };
 
-// Files need the sign-in token, so they are fetched once and played/opened from a local blob URL
+// Older files (MongoDB ids) need the sign-in token, so they are fetched once into a local blob URL.
+// S3 files get a signed link, re-used until shortly before it expires.
+const isLegacy = (id) => /^[0-9a-f]{24}$/.test(id);
 const cache = new Map();
-export const fileUrl = async (id) => {
-  if (!cache.has(id)) {
-    cache.set(id, api.get(`/files/${id}`, { responseType: 'blob' })
-      .then(({ data }) => URL.createObjectURL(data))
-      .catch((e) => { cache.delete(id); throw new Error(e.response?.status === 404 ? 'File not found' : 'Could not load file'); }));
-  }
-  return cache.get(id);
+export const fileUrl = async (id, name) => {
+  const hit = cache.get(id);
+  if (hit && (!hit.expires || hit.expires > Date.now())) return hit.url;
+  const url = isLegacy(id)
+    ? api.get(`/files/${id}`, { responseType: 'blob' }).then(({ data }) => URL.createObjectURL(data))
+    : api.get(`/files/${id}/url`, { params: { name } }).then(({ data }) => data.url);
+  const entry = { url: url.catch((e) => { cache.delete(id); throw new Error(e.response?.status === 404 ? 'File not found' : 'Could not load file'); }) };
+  if (!isLegacy(id)) entry.expires = Date.now() + 10 * 60 * 1000;
+  cache.set(id, entry);
+  return entry.url;
 };
 
 export const openFile = async (id, name) => {
-  const url = await fileUrl(id);
+  const url = await fileUrl(id, name);
   const a = document.createElement('a');
   a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  if (name) a.download = name;
+  if (name && isLegacy(id)) a.download = name;
   a.click();
 };
 
