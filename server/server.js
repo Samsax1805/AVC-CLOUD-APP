@@ -4,7 +4,10 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 
 const app = express();
-app.use(cors());
+// In production only the choir site may call the API from a browser
+const ORIGINS = ['https://avcsb.com', 'https://www.avcsb.com'];
+app.use(cors(process.env.NODE_ENV === 'production' ? { origin: ORIGINS } : {}));
+app.disable('x-powered-by');
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

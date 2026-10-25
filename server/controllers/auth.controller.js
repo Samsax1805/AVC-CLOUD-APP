@@ -201,8 +201,16 @@ exports.verifyResetCode = async (req, res) => {
   const rec = await ResetCode.findOne({ email: (email || '').toLowerCase() }).sort({ createdAt: -1 });
   if (!rec) return res.status(400).json({ msg: 'No reset request found — please try again' });
   if (rec.expiresAt < new Date()) return res.status(400).json({ msg: 'Code expired — request a new one' });
-  if (!bcrypt.compareSync(code, rec.codeHash)) return res.status(400).json({ msg: 'Invalid code' });
+  if (!bcrypt.compareSync(code, rec.codeHash)) return wrongCode(rec, res);
   res.json({ valid: true });
+};
+
+// After 5 wrong guesses the code is cancelled, so it can't be brute-forced
+const wrongCode = async (rec, res) => {
+  rec.attempts = (rec.attempts || 0) + 1;
+  if (rec.attempts >= 5) { await rec.deleteOne(); return res.status(400).json({ msg: 'Too many wrong codes — request a new one' }); }
+  await rec.save();
+  return res.status(400).json({ msg: 'Invalid code' });
 };
 
 // POST /api/auth/reset-password — sets the new password if code is valid
@@ -214,7 +222,7 @@ exports.resetPassword = async (req, res) => {
   const rec = await ResetCode.findOne({ email: (email || '').toLowerCase() }).sort({ createdAt: -1 });
   if (!rec) return res.status(400).json({ msg: 'No reset request found' });
   if (rec.expiresAt < new Date()) return res.status(400).json({ msg: 'Code expired — request a new one' });
-  if (!bcrypt.compareSync(code, rec.codeHash)) return res.status(400).json({ msg: 'Invalid code' });
+  if (!bcrypt.compareSync(code, rec.codeHash)) return wrongCode(rec, res);
 
   const user = await User.findOne({ email: (email || '').toLowerCase() });
   if (!user) return res.status(404).json({ msg: 'User not found' });

@@ -56,6 +56,9 @@ export const DataProvider = ({ children }) => {
   const [playProg, setPlayProg] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
   const loaded = useRef(false);
+  // Saving sends the whole data set, so never save unless it loaded successfully —
+  // otherwise an empty or partial copy could overwrite real records
+  const loadOk = useRef(false);
 
   useEffect(() => { setUsers((prev) => withCurrentUser(prev, user)); }, [user]);
 
@@ -72,8 +75,9 @@ export const DataProvider = ({ children }) => {
         setAudit(data.audit || []); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
         setDuesSettings(data.duesSettings || []); setAnnouncements(data.announcements || []); setDocuments(data.documents || []);
         setProbations(data.probations || []); setNotifs(data.notifs || []); setPendingNoms(data.pendingNoms || []);
+        loadOk.current = true;
       })
-      .catch((err) => { if (err.response?.status !== 401) console.warn('Data load failed — starting empty.'); })
+      .catch((err) => { if (err.response?.status !== 401) toast('Could not load choir data — please refresh the page. Changes will not be saved until it loads.', 'err'); })
       .finally(() => setLoadingData(false));
   }, [user]);
 
@@ -81,13 +85,16 @@ export const DataProvider = ({ children }) => {
   const first = useRef(true);
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (!user || loadingData) return;
+    if (!user || loadingData || !loadOk.current) return;
     const t = setTimeout(() => {
       api.put('/data', {
         users, songs, minutes, receipts, voiceNotes, sessions, debts, dues, elections,
         nominations, audit, pendingUsers, roleHistory, duesSettings, announcements,
         documents, probations, notifs, pendingNoms,
-      }).catch((err) => { if (err.response?.status !== 401) console.warn('Data save failed.'); });
+      }).catch((err) => {
+        if (err.response?.status === 409) { loadOk.current = false; toast(err.response.data?.msg || 'Save refused — please refresh the page.', 'err'); }
+        else if (err.response?.status !== 401) console.warn('Data save failed.');
+      });
     }, 900);
     return () => clearTimeout(t);
   }, [users, songs, minutes, receipts, voiceNotes, sessions, debts, dues, elections, nominations, audit, pendingUsers, roleHistory, duesSettings, announcements, documents, probations, notifs, pendingNoms, user, loadingData]);
