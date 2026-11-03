@@ -1,10 +1,9 @@
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const SECRET = process.env.JWT_SECRET;
+const { sign } = require('../config/token');
 
 // [FIX] Returns all necessary profile fields to the frontend
 const publicUser = (u) => ({
@@ -21,8 +20,6 @@ const publicUser = (u) => ({
   provider: u.provider || 'local', 
   joined: u.createdAt ? u.createdAt.toISOString().slice(0, 10) : '',
 });
-
-const sign = (u) => jwt.sign({ id: u._id.toString(), roles: u.roles }, SECRET, { expiresIn: '7d' });
 
 exports.login = async (req, res) => {
   const { email, password } = req.body || {};

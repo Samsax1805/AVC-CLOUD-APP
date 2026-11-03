@@ -138,6 +138,12 @@ export default function AppShell() {
           <button className="avatar-btn" onClick={() => setPage('profile')}><Avatar user={me} size={34} /></button>
         </header>
         <main className="content" onClick={() => notifOpen && setNotifOpen(false)}>
+          {data.loadFailed && (
+            <div className="banner">
+              Choir data could not be loaded, so lists may look empty. Nothing has been lost.
+              <button className="btn btn-sm btn-soft" onClick={data.retryLoad}>Try again</button>
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div key={page} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
               {renderPage()}

@@ -55,19 +55,31 @@ export const DataProvider = ({ children }) => {
   const [playId, setPlayId] = useState(null);
   const [playProg, setPlayProg] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
-  const loaded = useRef(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   // Saving sends the whole data set, so never save unless it loaded successfully —
   // otherwise an empty or partial copy could overwrite real records
   const loadOk = useRef(false);
 
   useEffect(() => { setUsers((prev) => withCurrentUser(prev, user)); }, [user]);
 
-  /* Hydrate once from the real MongoDB collections */
+  const clearData = () => {
+    setUsers([]); setSongs([]); setMinutes([]); setReceipts([]); setVoiceNotes([]); setSessions([]); setDebts([]);
+    setDues([]); setElections([]); setNominations({}); setAudit([]); setPendingUsers([]); setRoleHistory([]);
+    setDuesSettings([]); setAnnouncements([]); setDocuments([]); setProbations([]); setNotifs([]); setPendingNoms([]);
+  };
+
+  /* Hydrate from the real MongoDB collections: after every login, and whenever "Try again" is pressed */
+  const userId = user?.id;
   useEffect(() => {
-    if (!user || loaded.current) return;
-    loaded.current = true;
+    loadOk.current = false;
+    setLoadFailed(false);
+    setLoadingData(true);
+    if (!userId) { clearData(); return undefined; }
+    let current = true;
     api.get('/data')
       .then(({ data }) => {
+        if (!current) return;
         setUsers(withCurrentUser(data.users || [], user));
         setSongs(data.songs || []); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
         setVoiceNotes(data.voiceNotes || []); setSessions(data.sessions || []); setDebts(data.debts || []);
@@ -77,9 +89,14 @@ export const DataProvider = ({ children }) => {
         setProbations(data.probations || []); setNotifs(data.notifs || []); setPendingNoms(data.pendingNoms || []);
         loadOk.current = true;
       })
-      .catch((err) => { if (err.response?.status !== 401) toast('Could not load choir data — please refresh the page. Changes will not be saved until it loads.', 'err'); })
-      .finally(() => setLoadingData(false));
-  }, [user]);
+      .catch((err) => {
+        if (!current || err.response?.status === 401) return;
+        setLoadFailed(true);
+        toast('Could not load choir data. Changes will not be saved until it loads.', 'err');
+      })
+      .finally(() => { if (current) setLoadingData(false); });
+    return () => { current = false; };
+  }, [userId, loadAttempt]);
 
   /* Debounced persist into the real collections */
   const first = useRef(true);
@@ -144,7 +161,9 @@ export const DataProvider = ({ children }) => {
     }
   };
 
-  const value = { me, loadingData, users, setUsers, activeUsers, members, memberAction, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const retryLoad = () => setLoadAttempt((n) => n + 1);
+
+  const value = { me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

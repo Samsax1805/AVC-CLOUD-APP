@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
-import api from '../services/api';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import api, { onSessionEnded } from '../services/api';
+import { useToast } from './ToastContext';
 import { seedUsers } from '../data/seed';
 
 const AuthContext = createContext(null);
@@ -15,9 +16,16 @@ const mapUser = (u) => ({
 });
 
 export const AuthProvider = ({ children }) => {
+  const { toast } = useToast() || { toast: () => {} };
   const [user, setUser] = useState(() => {
     try { const raw = localStorage.getItem('avc_user'); return raw ? JSON.parse(raw) : null; } catch { return null; }
   });
+
+  // The server refused this login (expired, or the account was deactivated): back to the login screen
+  useEffect(() => onSessionEnded((code) => {
+    localStorage.removeItem('avc_token'); localStorage.removeItem('avc_user'); setUser(null);
+    toast(code === 'ACCOUNT_INACTIVE' ? 'Your account is not active. Please contact the choir administrator.' : 'Your session has expired — please log in again.', 'err');
+  }), []);
 
   const finish = (u, token) => { if (token) localStorage.setItem('avc_token', token); localStorage.setItem('avc_user', JSON.stringify(u)); setUser(u); return u; };
 
@@ -82,7 +90,7 @@ export const AuthProvider = ({ children }) => {
 
   const setSection = async (section) => {
     try { const { data } = await api.post('/auth/section', { section }); const u = mapUser(data.user); localStorage.setItem('avc_user', JSON.stringify(u)); setUser(u); return u; }
-    catch (e) { const next = { ...user, section, voice: section }; localStorage.setItem('avc_user', JSON.stringify(next)); setUser(next); return next; }
+    catch (e) { if (e.response?.status === 401) return null; const next = { ...user, section, voice: section }; localStorage.setItem('avc_user', JSON.stringify(next)); setUser(next); return next; }
   };
 
   const logout = () => { localStorage.removeItem('avc_token'); localStorage.removeItem('avc_user'); setUser(null); };
