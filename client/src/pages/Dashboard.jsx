@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
 import { TODAY, naira, fmtDate, shortDate, PIE_COLORS, duesNow } from '../utils/helpers';
@@ -9,11 +9,20 @@ import RoleChip from '../components/ui/RoleChip';
 import StatCard from '../components/ui/StatCard';
 import BirthdayBanner from '../components/BirthdayBanner';
 
-const EmptyChart = ({ text }) => (
-  <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b7f6a', fontSize: 13, textAlign: 'center', padding: '0 24px' }}>
-    {text}
-  </div>
-);
+const EmptyChart = ({ text }) => <div className="empty-chart">{text}</div>;
+
+// Phones and small tablets get shorter charts (matches the 920px layout breakpoint)
+const NARROW = '(max-width: 920px)';
+const useNarrow = () => {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  useEffect(() => {
+    const m = window.matchMedia(NARROW);
+    const on = () => setNarrow(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return narrow;
+};
 
 export default function Dashboard({ ctx }) {
   const {
@@ -21,6 +30,8 @@ export default function Dashboard({ ctx }) {
     minutes = [], probations = [], duesSettings = [], pendingUsers = [], announcements = [], setPage,
   } = ctx || {};
 
+  const narrow = useNarrow();
+  const chartH = narrow ? 170 : 220;
   const liveE = elections.find((e) => e.status === 'live');
   const outstanding = debts.reduce((a, d) => a + (d.amount - d.paid), 0);
   const myOut = debts.filter((d) => d.memberId === me.id).reduce((a, d) => a + (d.amount - d.paid), 0);
@@ -61,7 +72,7 @@ export default function Dashboard({ ctx }) {
   }
 
   return (
-    <div className="stack">
+    <div className="stack dash">
       <BirthdayBanner users={users} me={me} />
 
       {liveE && participates(me) && !liveE.choice?.[me.id] && (
@@ -73,20 +84,20 @@ export default function Dashboard({ ctx }) {
 
       <div className="card hero">
         <div>
-          <h2 style={{ fontSize: 24 }}>Welcome, {me.name.split(' ')[0]} 👋</h2>
+          <h2 className="hero-title">Welcome, {me.name.split(' ')[0]} 👋</h2>
           {/* [FIX] Date is computed live from the system clock — updates every day automatically */}
-          <p className="muted" style={{ margin: '6px 0 12px' }}>{fmtDate(TODAY)} · Here's your ministry overview for today.</p>
+          <p className="muted hero-sub">{fmtDate(TODAY)} · Here's your ministry overview for today.</p>
           <div className="chip-row">{rolesOf(me).map((r) => <RoleChip key={r} r={r} />)}</div>
         </div>
       </div>
 
-      <div className="grid g4">{cards.slice(0, 4).map((c) => <StatCard key={c.label} {...c} />)}</div>
+      <div className="grid g4 stat-grid dash-stats">{cards.slice(0, 4).map((c) => <StatCard key={c.label} {...c} />)}</div>
 
-      <div className="grid g3">
-        <div className="card span2">
+      <div className="grid g3 dash-row">
+        <div className="card span2 dash-att">
           <div className="card-h"><h3>Attendance trend</h3><span className="chip sm">Last 5 services</span></div>
           {attData.length ? (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={chartH}>
               <AreaChart data={attData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                 <defs><linearGradient id="gAtt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e9a63a" stopOpacity={0.4} /><stop offset="100%" stopColor="#e9a63a" stopOpacity={0.02} /></linearGradient></defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee5d2" vertical={false} />
@@ -99,12 +110,12 @@ export default function Dashboard({ ctx }) {
           ) : <EmptyChart text="No attendance recorded yet. Once the Provost marks a service, the trend appears here." />}
         </div>
 
-        <div className="card">
+        <div className="card dash-voice">
           <div className="card-h"><h3>Voice parts</h3></div>
           {voiceData.length ? (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={chartH}>
               <PieChart>
-                <Pie data={voiceData} dataKey="value" nameKey="name" innerRadius={46} outerRadius={72} paddingAngle={3}>
+                <Pie data={voiceData} dataKey="value" nameKey="name" innerRadius={narrow ? 38 : 46} outerRadius={narrow ? 60 : 72} paddingAngle={3}>
                   {voiceData.map((v, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e3d8c2', fontSize: 12 }} />
@@ -115,11 +126,11 @@ export default function Dashboard({ ctx }) {
         </div>
       </div>
 
-      <div className="grid g3">
-        <div className="card">
+      <div className="grid g3 dash-row">
+        <div className="card dash-dues">
           <div className="card-h"><h3>Weekly dues collected</h3></div>
           {duesData.length ? (
-            <ResponsiveContainer width="100%" height={210}>
+            <ResponsiveContainer width="100%" height={narrow ? 170 : 210}>
               <BarChart data={duesData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee5d2" vertical={false} />
                 <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#8b7f6a' }} axisLine={false} tickLine={false} />
@@ -133,7 +144,7 @@ export default function Dashboard({ ctx }) {
 
         {/* [FIX] Recent activity = officers only. Members see announcements instead. */}
         {canSeeActivity ? (
-          <div className="card span2">
+          <div className="card span2 dash-feed">
             <div className="card-h"><h3>Recent activity</h3><button className="chip link" onClick={() => setPage('audit')}>View all →</button></div>
             <div className="feed">
               {audit.slice(0, 6).map((a) => {
@@ -151,7 +162,7 @@ export default function Dashboard({ ctx }) {
             </div>
           </div>
         ) : (
-          <div className="card span2">
+          <div className="card span2 dash-feed">
             <div className="card-h"><h3>Choir announcements</h3><button className="chip link" onClick={() => setPage('announcements')}>View all →</button></div>
             <div className="feed">
               {announcements.slice(0, 4).map((an) => (

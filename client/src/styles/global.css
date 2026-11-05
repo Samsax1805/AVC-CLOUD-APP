@@ -423,3 +423,27 @@ button.chip:hover{background:var(--navy2)}
 @media (max-width: 768px) {
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* ===== DASHBOARD ===== */
+.hero-title{font-size:24px}
+.hero-sub{margin:6px 0 12px}
+.empty-chart{height:220px;display:flex;align-items:center;justify-content:center;color:#8b7f6a;font-size:13px;text-align:center;padding:0 24px}
+/* Phones: tighter spacing, stats two-up, latest updates before the charts */
+@media(max-width:920px){
+ .dash{gap:12px}
+ .dash .card{padding:14px}
+ .dash .card-h{margin-bottom:8px}
+ .dash .card-h h3{font-size:14.5px}
+ .dash .hero{padding:16px 16px 14px}
+ .dash .hero-title{font-size:20px}
+ .dash .hero-sub{margin:4px 0 10px;font-size:13px}
+ .dash .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .dash .stat-card{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:8px;padding:12px}
+ .dash .stat-ic{width:34px;height:34px;border-radius:9px}
+ .dash .stat-val{font-size:19px;line-height:1.15}
+ .dash .stat-lbl{font-size:11.5px}
+ .dash .empty-chart{height:auto;padding:12px 8px 6px;font-size:12.5px}
+ .dash .feed-row{padding:9px 0;gap:10px}
+ .dash-row{display:contents}
+ .dash-stats{order:1}.dash-feed{order:2}.dash-att{order:3}.dash-voice{order:4}.dash-dues{order:5}
+}
