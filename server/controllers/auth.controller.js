@@ -4,6 +4,23 @@ const User = require('../models/User');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const { sign } = require('../config/token');
+const security = require('../services/security.service');
+
+// 5 wrong passwords within 15 minutes lock the account for 15 minutes (Google sign-in still works)
+const MAX_WRONG = 5;
+const LOCK_MINUTES = 15;
+const lockedMsg = (until) => { const m = Math.max(1, Math.ceil((until - Date.now()) / 60000)); return `Too many wrong passwords. Try again in ${m} minute${m === 1 ? '' : 's'}, or use Forgot Password.`; };
+
+// Successful sign-in: clear failures, remember the device, flag a new device on Admin/President accounts
+const signedIn = async (req, user, method) => {
+  const device = security.deviceOf(req.headers['user-agent']);
+  const known = user.knownDevices || [];
+  const newDevice = (user.roles || []).some((r) => security.PRIVILEGED.includes(r)) && known.length > 0 && !known.includes(device);
+  user.failedLogins = 0; user.lockedUntil = null; user.lastLoginAt = new Date();
+  if (!known.includes(device)) user.knownDevices = [...known, device].slice(-10);
+  await user.save();
+  await security.record(req, { kind: 'signin', type: 'success', method, userId: user._id.toString(), name: user.name, email: user.email, alert: newDevice, detail: newDevice ? 'Admin/President account used on a new device' : undefined });
+};
 
 // [FIX] Returns all necessary profile fields to the frontend
 const publicUser = (u) => ({
@@ -24,10 +41,29 @@ const publicUser = (u) => ({
 exports.login = async (req, res) => {
   const { email, password } = req.body || {};
   const user = await User.findOne({ email: (email || '').toLowerCase() });
-  if (!user || !user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash))
+  const who = user ? { userId: user._id.toString(), name: user.name, email: user.email } : { email: String(email || '').toLowerCase().slice(0, 120) };
+  const attempt = (type, extra) => security.record(req, { kind: 'signin', method: 'password', type, ...who, ...extra });
+  if (!user) { await attempt('unknown_account'); return res.status(401).json({ msg: 'Invalid credentials' }); }
+  if (user.lockedUntil > new Date()) { await attempt('blocked'); return res.status(423).json({ msg: lockedMsg(user.lockedUntil) }); }
+  if (!user.passwordHash || !bcrypt.compareSync(password || '', user.passwordHash)) {
+    const recent = user.lastFailedAt && Date.now() - user.lastFailedAt < LOCK_MINUTES * 60000;
+    user.failedLogins = (recent ? user.failedLogins || 0 : 0) + 1;
+    user.lastFailedAt = new Date();
+    if (user.failedLogins >= MAX_WRONG) {
+      user.failedLogins = 0;
+      user.lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60000);
+      await user.save();
+      await attempt('locked', { alert: true, detail: `${MAX_WRONG} wrong passwords — locked for ${LOCK_MINUTES} minutes` });
+      security.alertAdmins(`Account locked: ${user.name}`, [`${user.name} (${user.email}) was locked for ${LOCK_MINUTES} minutes after ${MAX_WRONG} wrong passwords in a row.`, 'If this was not them, someone may be trying to guess the password.']);
+      return res.status(423).json({ msg: lockedMsg(user.lockedUntil) });
+    }
+    await user.save();
+    await attempt('wrong_password');
     return res.status(401).json({ msg: 'Invalid credentials' });
-  if (user.status === 'pending') return res.status(403).json({ msg: 'Your account is awaiting approval by the President or Provost.' });
-  if (user.status === 'deactivated') return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' });
+  }
+  if (user.status === 'pending') { await attempt('pending'); return res.status(403).json({ msg: 'Your account is awaiting approval by the President or Provost.' }); }
+  if (user.status === 'deactivated') { await attempt('deactivated'); return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' }); }
+  await signedIn(req, user, 'password');
   res.json({ access: sign(user), user: publicUser(user) });
 };
 
@@ -88,6 +124,7 @@ exports.google = async (req, res) => {
         provider: 'google', // [FIX] Mark as Google provider so frontend triggers setup
       });
       notifyApprovers(user);
+      await security.record(req, { kind: 'signin', method: 'google', type: 'pending', userId: user._id.toString(), name: user.name, email: user.email, detail: 'New registration' });
       return res.status(403).json({ pending: true, msg: 'Registration submitted — the President or Provost will approve your account.' });
     } else {
       // [FIX] Keep stored profile in sync with Google on every login
@@ -98,8 +135,10 @@ exports.google = async (req, res) => {
       await user.save();
     }
 
-    if (user.status === 'pending') return res.status(403).json({ pending: true, msg: 'Your account is awaiting approval by the President or Provost.' });
-    if (user.status !== 'active') return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' });
+    const who = { kind: 'signin', method: 'google', userId: user._id.toString(), name: user.name, email: user.email };
+    if (user.status === 'pending') { await security.record(req, { ...who, type: 'pending' }); return res.status(403).json({ pending: true, msg: 'Your account is awaiting approval by the President or Provost.' }); }
+    if (user.status !== 'active') { await security.record(req, { ...who, type: 'deactivated' }); return res.status(403).json({ msg: 'This account has been deactivated. Contact the choir administrator.' }); }
+    await signedIn(req, user, 'google');
     res.json({ access: sign(user), user: publicUser(user) });
   } catch (e) {
     console.error('Google auth error:', e.message);
@@ -225,8 +264,13 @@ exports.resetPassword = async (req, res) => {
   if (!user) return res.status(404).json({ msg: 'User not found' });
 
   user.passwordHash = bcrypt.hashSync(newPassword, 10);
+  // A reset also ends every existing session and lifts any lock
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  user.failedLogins = 0;
+  user.lockedUntil = null;
   await user.save();
   await ResetCode.deleteMany({ email: user.email }); // clean up used codes
+  await security.record(req, { kind: 'action', type: 'password_reset', method: 'reset', userId: user._id.toString(), name: user.name, email: user.email, alert: true, detail: 'Password reset with an emailed code' });
 
   res.json({ success: true, message: 'Password reset successfully' });
 };

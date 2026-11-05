@@ -26,6 +26,9 @@ const withCurrentUser = (list, u) => {
   }];
 };
 
+// The database returns records oldest first; feeds show the newest first (ties keep newest-saved first)
+const newestFirst = (list, key) => [...(list || [])].reverse().sort((a, b) => String(b[key] || '').localeCompare(String(a[key] || '')));
+
 export const DataProvider = ({ children }) => {
   const auth = useAuth() || {};
   const toastCtx = useToast() || { toast: () => {} };
@@ -84,9 +87,9 @@ export const DataProvider = ({ children }) => {
         setSongs(data.songs || []); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
         setVoiceNotes(data.voiceNotes || []); setSessions(data.sessions || []); setDebts(data.debts || []);
         setDues(data.dues || []); setElections(data.elections || []); setNominations(data.nominations || {});
-        setAudit(data.audit || []); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
-        setDuesSettings(data.duesSettings || []); setAnnouncements(data.announcements || []); setDocuments(data.documents || []);
-        setProbations(data.probations || []); setNotifs(data.notifs || []); setPendingNoms(data.pendingNoms || []);
+        setAudit(newestFirst(data.audit, 'time')); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
+        setDuesSettings(data.duesSettings || []); setAnnouncements(newestFirst(data.announcements, 'date')); setDocuments(data.documents || []);
+        setProbations(data.probations || []); setNotifs(newestFirst(data.notifs, 'date')); setPendingNoms(data.pendingNoms || []);
         loadOk.current = true;
       })
       .catch((err) => {

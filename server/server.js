@@ -16,6 +16,7 @@ app.use('/api/data', require('./routes/data.routes'));
 app.use('/api/members', require('./routes/members.routes'));
 app.use('/api/files', require('./routes/files.routes'));
 app.use('/api/elections', require('./routes/elections.routes'));
+app.use('/api/security', require('./routes/security.routes'));
 
 app.use((req, res) => {
   res.status(404).json({ msg: `Route not found: ${req.method} ${req.path}` });

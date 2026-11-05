@@ -24,7 +24,10 @@ export const AuthProvider = ({ children }) => {
   // The server refused this login (expired, or the account was deactivated): back to the login screen
   useEffect(() => onSessionEnded((code) => {
     localStorage.removeItem('avc_token'); localStorage.removeItem('avc_user'); setUser(null);
-    toast(code === 'ACCOUNT_INACTIVE' ? 'Your account is not active. Please contact the choir administrator.' : 'Your session has expired — please log in again.', 'err');
+    toast({
+      ACCOUNT_INACTIVE: 'Your account is not active. Please contact the choir administrator.',
+      SESSION_REVOKED: 'You were signed out of this device. Please log in again.',
+    }[code] || 'Your session has expired — please log in again.', 'err');
   }), []);
 
   const finish = (u, token) => { if (token) localStorage.setItem('avc_token', token); localStorage.setItem('avc_user', JSON.stringify(u)); setUser(u); return u; };

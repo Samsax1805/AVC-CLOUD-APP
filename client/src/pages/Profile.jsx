@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import COUNTRIES from '../data/countries';
 import PhoneField, { parsePhone, joinPhone } from '../components/PhoneField';
+import AccountSecurity from '../components/AccountSecurity';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 
@@ -175,6 +176,8 @@ export default function ProfilePage({ ctx }) {
         <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>Personal details</h3>
         {formBody}
       </div>
+
+      <AccountSecurity toast={toast} />
     </div>
   );
 }

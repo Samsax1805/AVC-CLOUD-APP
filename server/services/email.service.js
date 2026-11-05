@@ -120,3 +120,31 @@ exports.sendWelcomeEmail = async (member, addedBy) => {
     return false;
   }
 };
+
+// Security alerts for the admins (account locked, new admin). Never throws.
+exports.sendSecurityAlert = async (recipients, subject, lines) => {
+  const site = (process.env.CLIENT_URL || '').replace(/\/dashboard$/, '');
+  try {
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL,
+      to: recipients.join(', '),
+      subject: `Security alert: ${subject}`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;background:#faf7f0;padding:32px;border-radius:12px;border:1px solid #e3d8c2">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="display:inline-block;padding:8px 16px;background:#1a2c60;color:#e9a63a;border-radius:6px;font-weight:700;letter-spacing:1px">AVC CLOUD</div>
+          </div>
+          <h2 style="color:#b91c1c;margin:0 0 8px">${esc(subject)}</h2>
+          ${lines.map((l) => `<p style="color:#555">${esc(l)}</p>`).join('')}
+          ${site ? `<p style="text-align:center"><a href="${esc(site)}" style="display:inline-block;background:#1a2c60;color:#e9a63a;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:700">Open the Security page</a></p>` : ''}
+          <div style="text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #e3d8c2;color:#999;font-size:12px">
+            © 2026 St. Barnabas Amazing Voices Choir
+          </div>
+        </div>
+      `,
+    });
+    console.log('✅ Security alert sent to', recipients.length, 'admin(s)');
+  } catch (err) {
+    console.error('❌ Security alert failed:', err.message);
+  }
+};

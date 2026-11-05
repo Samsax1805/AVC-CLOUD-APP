@@ -7,7 +7,7 @@ api.interceptors.request.use((c) => {
 });
 
 // Refusals that mean this login is over (see server/middleware/auth.js)
-const SESSION_ENDED = ['NO_TOKEN', 'INVALID_TOKEN', 'SESSION_EXPIRED', 'ACCOUNT_INACTIVE'];
+const SESSION_ENDED = ['NO_TOKEN', 'INVALID_TOKEN', 'SESSION_EXPIRED', 'ACCOUNT_INACTIVE', 'SESSION_REVOKED'];
 let sessionEndedHandler = null;
 export const onSessionEnded = (fn) => {
   sessionEndedHandler = fn;

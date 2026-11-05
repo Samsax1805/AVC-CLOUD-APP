@@ -16,12 +16,13 @@ module.exports = async (req, res, next) => {
   }
   let user;
   // A database problem is not a login problem: nobody gets logged out because of it
-  try { user = await User.findById(req.user.id, { status: 1, roles: 1 }).lean(); }
+  try { user = await User.findById(req.user.id, { status: 1, roles: 1, tokenVersion: 1 }).lean(); }
   catch (e) {
     console.error('Auth lookup failed:', e.message);
     return res.status(503).json({ msg: 'Service temporarily unavailable — please try again' });
   }
   if (!user || user.status !== 'active') return refuse(res, 'ACCOUNT_INACTIVE', 'Account is not active');
+  if ((req.user.tv || 0) !== (user.tokenVersion || 0)) return refuse(res, 'SESSION_REVOKED', 'You were signed out of this device — please log in again');
   req.user.roles = user.roles || ['member'];
   if (req.user.exp - Date.now() / 1000 < RENEW_WITHIN_SECONDS) res.set('x-renewed-token', sign(user));
   next();

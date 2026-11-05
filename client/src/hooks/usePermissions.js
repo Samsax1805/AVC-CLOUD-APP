@@ -26,6 +26,7 @@ export const PERMS = {
   recordVoice: (u) => hasAny(u, ['admin', 'president', 'custodian']),
   manageElections: (u) => hasAny(u, ['admin', 'electoral']),
   viewAudit: (u) => hasAny(u, ['admin', 'president']),
+  viewSecurity: (u) => hasAny(u, ['admin', 'president']),
   manageMembers: (u) => hasAny(u, ['admin', 'president']),
   approveMembers: (u) => hasAny(u, ['admin', 'president', 'provost']),
   addMembers: (u) => hasAny(u, ['admin', 'president', 'provost', 'pro']),

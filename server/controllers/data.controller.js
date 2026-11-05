@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const R = require('../models/records');
 const elections = require('./elections.controller');
+const security = require('../services/security.service');
+
+const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', custodian: 'Custodian', electoral: 'Electoral Committee', alumni: 'Old Member' };
 
 const KEYS = {
   songs: R.Song, sessions: R.Session, debts: R.Debt, dues: R.Due, elections: R.Election,
@@ -151,13 +154,23 @@ exports.putAll = async (req, res) => {
         const existing = await User.findOne(q).lean();
         if (!existing || existing.status === 'pending') continue;
         const adminCount = await User.countDocuments({ roles: 'admin', status: 'active' });
+        const before = existing.roles || ['member'];
+        const roles = nextRoles(actorRoles, before, mu.roles, adminCount);
         await User.updateOne({ _id: existing._id }, {
           $set: {
-            name: mu.name, roles: nextRoles(actorRoles, existing.roles || ['member'], mu.roles, adminCount),
+            name: mu.name, roles,
             section: existing._id.toString() === req.user.id ? (mu.voice || mu.section || null) : (existing.section || null),
             avatar: mu.avatar || null, dob: mu.dob || '', country: mu.country || '', phone: mu.phone || '',
           },
         });
+        // Role changes are recorded by the server for the Security page; a new admin is emailed to the admins
+        for (const r of roles.filter((x) => x !== 'member' && !before.includes(x))) {
+          await security.recordAction(req, 'role_granted', existing, `Granted ${ROLE_LABEL[r] || r}`, r === 'admin');
+          if (r === 'admin') security.alertAdmins(`New admin: ${existing.name}`, [`${existing.name} (${existing.email}) was given the Admin role.`, 'If you did not expect this, check the Security page.']);
+        }
+        for (const r of before.filter((x) => x !== 'member' && !roles.includes(x))) {
+          await security.recordAction(req, 'role_revoked', existing, `Removed ${ROLE_LABEL[r] || r}`);
+        }
       }
     }
     res.json({ ok: true });

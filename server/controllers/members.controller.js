@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const emailService = require('../services/email.service');
 const { mapMember } = require('./data.controller');
+const security = require('../services/security.service');
 
 const APPROVERS = ['admin', 'president', 'provost'];
 const MANAGERS = ['admin', 'president'];
@@ -25,6 +26,7 @@ exports.approve = async (req, res) => {
   if (!user) return;
   user.status = 'active';
   await user.save();
+  await security.recordAction(req, 'member_approved', user, 'Registration approved');
   res.json({ ok: true });
 };
 
@@ -33,6 +35,7 @@ exports.reject = async (req, res) => {
   if (!has(req, APPROVERS)) return res.status(403).json({ msg: 'Only the President or Provost can reject members' });
   const user = await load(req, res, 'pending');
   if (!user) return;
+  await security.recordAction(req, 'member_rejected', user, 'Registration rejected');
   await user.deleteOne();
   res.json({ ok: true });
 };
@@ -49,6 +52,7 @@ exports.deactivate = async (req, res) => {
   }
   user.status = 'deactivated';
   await user.save();
+  await security.recordAction(req, 'member_deactivated', user, 'Account deactivated');
   res.json({ ok: true });
 };
 
@@ -59,6 +63,7 @@ exports.reactivate = async (req, res) => {
   if (!user) return;
   user.status = 'active';
   await user.save();
+  await security.recordAction(req, 'member_reactivated', user, 'Account reactivated');
   res.json({ ok: true });
 };
 
@@ -90,6 +95,7 @@ exports.add = async (req, res) => {
   }
   const adder = await User.findById(req.user.id, { name: 1 }).lean();
   const emailSent = await emailService.sendWelcomeEmail(user, adder?.name);
+  await security.recordAction(req, 'member_added', user, `Added as a member${emailSent ? '' : ' (welcome email failed)'}`);
   res.json({ ok: true, emailSent, member: mapMember(user) });
 };
 
@@ -100,7 +106,9 @@ exports.section = async (req, res) => {
   if (!PARTS.includes(section)) return res.status(400).json({ msg: 'Choose Soprano, Alto, Tenor or Bass' });
   const user = await load(req, res);
   if (!user) return;
+  const before = user.section;
   user.section = section;
   await user.save();
+  await security.recordAction(req, 'part_changed', user, `Part changed from ${before || 'not set'} to ${section}`);
   res.json({ ok: true });
 };

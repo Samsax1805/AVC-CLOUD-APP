@@ -12,5 +12,12 @@ const UserSchema = new mongoose.Schema({
   phone: String,
   provider: { type: String, default: 'local' },
   status: { type: String, enum: ['active', 'pending', 'deactivated'], default: 'active' },
+  // Security: raising tokenVersion signs the account out everywhere; wrong passwords lock it for a while
+  tokenVersion: { type: Number, default: 0 },
+  failedLogins: { type: Number, default: 0 },
+  lastFailedAt: Date,
+  lockedUntil: Date,
+  lastLoginAt: Date,
+  knownDevices: [String],
 }, { timestamps: true });
 module.exports = mongoose.model('User', UserSchema);

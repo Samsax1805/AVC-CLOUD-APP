@@ -20,6 +20,7 @@ import ProfilePage from '../pages/Profile';
 import AnnouncementsPage from '../pages/Announcements';
 import DocumentsPage from '../pages/Documents';
 import ProbationPage from '../pages/Probation';
+import SecurityPage from '../pages/Security';
 
 export default function AppShell() {
   const data = useDataContext() || {};
@@ -64,6 +65,7 @@ export default function AppShell() {
       case 'dues': return <DuesPage ctx={ctx} />;
       case 'elections': return <ElectionsPage ctx={ctx} />;
       case 'audit': return <AuditPage ctx={ctx} />;
+      case 'security': return PERMS.viewSecurity(me) ? <SecurityPage ctx={ctx} /> : <Dashboard ctx={ctx} />;
       case 'members': return <MembersPage ctx={ctx} />;
       case 'profile': return <ProfilePage ctx={ctx} />;
       case 'announcements': return <AnnouncementsPage ctx={ctx} />;
@@ -95,7 +97,13 @@ export default function AppShell() {
             </div>
           ))}
           <div className="side-div" />
-          <button className="nav-item"><Icon name="lock" size={16} /><span>Security</span></button>
+          {/* Admin and President open the Security page; everyone else goes to their own security settings */}
+          <button className={`nav-item ${page === 'security' ? 'active' : ''}`} onClick={() => {
+            setSideOpen(false);
+            if (PERMS.viewSecurity(me)) return setPage('security');
+            setPage('profile');
+            setTimeout(() => document.getElementById('account-security')?.scrollIntoView({ behavior: 'smooth' }), 250);
+          }}><Icon name="lock" size={16} /><span>Security</span></button>
           <button className="nav-item"><Icon name="bell" size={16} /><span>Help Centre</span></button>
           <div className="dm-row">
             <span className="dm-l"><Icon name="moon" size={15} /> Dark Mode</span>
