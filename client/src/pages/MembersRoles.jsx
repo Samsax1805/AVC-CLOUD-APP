@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { TODAY, uid, fmtDate } from '../utils/helpers';
+import { TODAY, uid, fmtDate, VOICE_PARTS } from '../utils/helpers';
+import COUNTRIES from '../data/countries';
+import PhoneField, { joinPhone } from '../components/PhoneField';
 import { GRANTABLE, ROLES, PERMS } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
@@ -15,8 +17,13 @@ const VIEWS = [
 ];
 
 export default function MembersRoles({ ctx }) {
-  const { me, users, setUsers, pendingUsers, roleHistory, setRoleHistory, log, toast, notify, memberAction } = ctx;
+  const { me, users, setUsers, pendingUsers, roleHistory, setRoleHistory, log, toast, notify, memberAction, addMember, setMemberPart } = ctx;
   const canManage = PERMS.manageMembers(me);
+  const canAdd = PERMS.addMembers(me);
+  const canParts = PERMS.editParts(me);
+  const canList = canManage || canParts;
+  const blankMember = { name: '', email: '', phoneIso: 'NG', phone: '', section: '', dob: '', country: '' };
+  const [adding, setAdding] = useState(null);
   const [q, setQ] = useState('');
   const [view, setView] = useState('active');
   const [grant, setGrant] = useState({});
@@ -74,6 +81,37 @@ export default function MembersRoles({ ctx }) {
     } catch (e) { toast(e.message, 'err'); } finally { setBusy(false); }
   };
 
+  const submitAdd = async () => {
+    const f = adding;
+    if (!f.name.trim()) return toast("Enter the member's full name", 'err');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return toast('Enter a valid email address', 'err');
+    if (f.phone && f.phone.length < 7) return toast('Phone number needs at least 7 digits', 'err');
+    setBusy(true);
+    try {
+      const { emailSent } = await addMember({
+        name: f.name.trim(), email: f.email.trim(), phone: f.phone ? joinPhone(f.phoneIso, f.phone) : '',
+        section: f.section, dob: f.dob, country: f.country.trim(),
+      });
+      log('MEMBER_ADDED', `Added ${f.name.trim()} as a member`);
+      notify(`Welcome ${f.name.trim()} to the choir!`);
+      toast(emailSent ? `${f.name.trim()} added — a welcome email is on its way` : `${f.name.trim()} added, but the welcome email could not be sent. Ask them to sign in with Google or use Forgot Password.`, emailSent ? undefined : 'err');
+      setAdding(null);
+    } catch (e) { toast(e.message, 'err'); } finally { setBusy(false); }
+  };
+  const changePart = async (u, section) => {
+    if (!section || section === u.voice) return;
+    setBusy(true);
+    try {
+      await setMemberPart(u, section);
+      log('PART_CHANGED', `Changed ${u.name}'s part to ${section}`);
+      toast(`${u.name} now sings ${section}`);
+    } catch (e) { toast(e.message, 'err'); } finally { setBusy(false); }
+  };
+  const describe = canManage
+    ? 'Add and approve members, set the part each member sings, grant/revoke privileges, deactivate members who leave, view full role history.'
+    : [canAdd && 'add new members', PERMS.approveMembers(me) && 'approve or reject registrations', canParts && 'set the part each member sings']
+      .filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + '.';
+
   const viewDef = VIEWS.find((v) => v.id === view);
   const list = users.filter((u) => viewDef.test(u) && (u.name.toLowerCase().includes(q.toLowerCase()) || u.email.includes(q.toLowerCase())));
   const paged = usePaged(list, 15, `${q}|${view}`);
@@ -82,8 +120,11 @@ export default function MembersRoles({ ctx }) {
   return (
     <div className="stack">
       <div className="page-head">
-        <div><h2>Members & Roles</h2><p className="muted small">{canManage ? 'Approve new members, grant/revoke privileges, deactivate members who leave, view full role history.' : 'Approve or reject new member registrations.'}</p></div>
-        {canManage && <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search members…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}
+        <div><h2>Members & Roles</h2><p className="muted small">{describe}</p></div>
+        <div className="head-actions">
+          {canList && <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search members…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}
+          {canAdd && <button className="btn btn-pri" onClick={() => setAdding(blankMember)}><Icon name="plus" size={15} /> Add member</button>}
+        </div>
       </div>
       {PERMS.approveMembers(me) && (
         <div className="card pend-card">
@@ -102,33 +143,41 @@ export default function MembersRoles({ ctx }) {
           ) : <p className="muted small">No registrations waiting. New sign-ups appear here and the President and Provost get an email.</p>}
         </div>
       )}
-      {canManage && (<>
+      {canList && (<>
         <div className="chip-row">{VIEWS.map((v) => <button key={v.id} className={`chip ${view === v.id ? 'on' : ''}`} onClick={() => setView(v.id)}>{v.label} ({count(v.id)})</button>)}</div>
         <div className="card pad0">
           <table className="tbl">
-            <thead><tr><th>Member</th><th>Voice</th><th>Granted privileges</th><th>Grant new role</th><th className="r" /></tr></thead>
+            <thead><tr><th>Member</th><th>Voice</th><th>Granted privileges</th>{canManage && <><th>Grant new role</th><th className="r" /></>}</tr></thead>
             <tbody>
               {paged.items.map((u) => {
                 const off = u.status === 'deactivated';
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
                     <td><div className="cell-user"><Avatar user={u} size={34} /><div><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{off && <span className="chip sm" style={{ marginLeft: 6, color: '#dc2626' }}>deactivated</span>}<div className="muted tiny">{u.email}</div></div></div></td>
-                    <td><span className="chip sm">{u.voice || '—'}</span></td>
+                    <td>
+                      {canParts && !off ? (
+                        <select className="input sm" aria-label={`Part ${u.name} sings`} value={u.voice || ''} disabled={busy} onChange={(e) => changePart(u, e.target.value)}>
+                          {!u.voice && <option value="">Not set</option>}
+                          {VOICE_PARTS.map((p) => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      ) : <span className="chip sm">{u.voice || '—'}</span>}
+                    </td>
                     <td>
                       <div className="chip-row wrap">
                         {(u.roles.length === 0 || (u.roles.length === 1 && u.roles[0] === 'member')) && <RoleChip r="member" small />}
                         {u.roles.filter((r) => r !== 'member' && ROLES[r]).map((r) => (
                           <span key={r} className="role-badge small" style={{ background: ROLES[r].bg, color: ROLES[r].color }}>
                             {ROLES[r].label}
-                            {!off && !(r === 'admin' && (adminCount <= 1 || !me.roles.includes('admin'))) && <button onClick={() => doRevoke(u, r)} title="Revoke"><Icon name="x" size={11} /></button>}
+                            {canManage && !off && !(r === 'admin' && (adminCount <= 1 || !me.roles.includes('admin'))) && <button onClick={() => doRevoke(u, r)} title="Revoke"><Icon name="x" size={11} /></button>}
                           </span>
                         ))}
                       </div>
                     </td>
+                    {canManage && (<>
                     <td>
                       {!off && (
                         <div className="grant-cell">
-                          <select className="input sm" value={grant[u.id] || ''} onChange={(e) => setGrant((g) => ({ ...g, [u.id]: e.target.value }))}>
+                          <select className="input sm" value={grant[u.id] || ''} onChange={(e) => setGrant((g) => ({ ...g, [u.id]: value }))}>
                             <option value="">Select role…</option>
                             {GRANTABLE.map((r) => <option key={r} value={r} disabled={u.roles.includes(r)}>{ROLES[r].label}</option>)}
                           </select>
@@ -142,6 +191,7 @@ export default function MembersRoles({ ctx }) {
                         ? <button className="btn btn-sm btn-soft" style={{ marginLeft: 6 }} disabled={busy} onClick={() => run('reactivate', u)}><Icon name="check" size={13} /> Reactivate</button>
                         : <button className="btn btn-sm btn-danger-soft" style={{ marginLeft: 6 }} disabled={busy} onClick={() => setConfirm({ action: 'deactivate', u })}><Icon name="lock" size={13} /> Deactivate</button>)}
                     </td>
+                    </>)}
                   </tr>
                 );
               })}
@@ -159,6 +209,23 @@ export default function MembersRoles({ ctx }) {
           <button className="btn btn-ghost" onClick={() => setConfirm(null)}>Cancel</button>
           <button className="btn btn-pri" disabled={busy} onClick={() => (confirm.action === 'alumni' ? (makeAlumni(confirm.u), setConfirm(null)) : run(confirm.action, confirm.u))}>Confirm</button>
         </div>
+      </Modal>
+      <Modal open={!!adding} onClose={() => setAdding(null)} title="Add a member">
+        {adding && (<>
+          <p className="muted small" style={{ marginTop: 0 }}>They can sign in straight away and get an email explaining how. Anything you leave blank, they can fill in under Settings.</p>
+          <div className="field"><label className="label" htmlFor="add-name">Full name</label><input id="add-name" className="input" value={adding.name} onChange={({ target: { value } }) => setAdding((a) => ({ ...a, name: value }))} placeholder="e.g. Grace Okafor" /></div>
+          <div className="field"><label className="label" htmlFor="add-email">Email address</label><input id="add-email" type="email" className="input" value={adding.email} onChange={({ target: { value } }) => setAdding((a) => ({ ...a, email: value }))} placeholder="name@example.com" /></div>
+          <div className="field"><label className="label" htmlFor="add-phone">Phone number</label><PhoneField id="add-phone" className="input" iso={adding.phoneIso} num={adding.phone} onIso={(phoneIso) => setAdding((a) => ({ ...a, phoneIso }))} onNum={(phone) => setAdding((a) => ({ ...a, phone }))} placeholder="Phone number" /></div>
+          <div className="field">
+            <label className="label">Part they sing</label>
+            <div className="chip-row">{VOICE_PARTS.map((p) => <button type="button" key={p} className={`chip ${adding.section === p ? 'on' : ''}`} onClick={() => setAdding((a) => ({ ...a, section: a.section === p ? '' : p }))}>{p}</button>)}</div>
+          </div>
+          <div className="grid g2">
+            <div className="field"><label className="label" htmlFor="add-dob">Date of birth</label><input id="add-dob" type="date" className="input" value={adding.dob} max={TODAY} onChange={({ target: { value } }) => setAdding((a) => ({ ...a, dob: value }))} /></div>
+            <div className="field"><label className="label" htmlFor="add-country">Country</label><input id="add-country" list="add-country-list" className="input" value={adding.country} onChange={({ target: { value } }) => setAdding((a) => ({ ...a, country: value }))} placeholder="e.g. Nigeria" /><datalist id="add-country-list">{COUNTRIES.map((c) => <option key={c.iso} value={c.name} />)}</datalist></div>
+          </div>
+          <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setAdding(null)}>Cancel</button><button className="btn btn-pri" disabled={busy} onClick={submitAdd}>{busy ? 'Adding…' : 'Add member'}</button></div>
+        </>)}
       </Modal>
       <Modal open={!!histFor} onClose={() => setHistFor(null)} title={`Role history — ${histFor?.name}`}>
         <div className="stack sm-gap">

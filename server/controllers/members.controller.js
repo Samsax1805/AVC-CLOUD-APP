@@ -1,8 +1,14 @@
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const emailService = require('../services/email.service');
+const { mapMember } = require('./data.controller');
 
 const APPROVERS = ['admin', 'president', 'provost'];
 const MANAGERS = ['admin', 'president'];
+// Who may add members directly and change the part a member sings
+const ADDERS = ['admin', 'president', 'provost', 'pro'];
+const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const has = (req, list) => (req.user.roles || []).some((r) => list.includes(r));
 
 const load = async (req, res, status) => {
@@ -52,6 +58,49 @@ exports.reactivate = async (req, res) => {
   const user = await load(req, res, 'deactivated');
   if (!user) return;
   user.status = 'active';
+  await user.save();
+  res.json({ ok: true });
+};
+
+// POST /api/members — President, Provost or PRO adds a member; the member is emailed how to sign in
+exports.add = async (req, res) => {
+  if (!has(req, ADDERS)) return res.status(403).json({ msg: 'Only the President, Provost or PRO can add members' });
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 120);
+  const email = String(b.email || '').trim().toLowerCase();
+  if (!name) return res.status(400).json({ msg: "Enter the member's full name" });
+  if (!EMAIL.test(email)) return res.status(400).json({ msg: 'Enter a valid email address' });
+  if (b.section && !PARTS.includes(b.section)) return res.status(400).json({ msg: 'Choose Soprano, Alto, Tenor or Bass' });
+  const existing = await User.findOne({ email }, { status: 1 }).lean();
+  if (existing) {
+    return res.status(409).json({ msg: existing.status === 'pending'
+      ? 'This email has already registered and is waiting under Pending approvals'
+      : 'A member with this email already exists' });
+  }
+  let user;
+  try {
+    user = await User.create({
+      name, email, phone: String(b.phone || '').slice(0, 20), section: b.section || null,
+      dob: String(b.dob || ''), country: String(b.country || '').trim().slice(0, 80),
+      roles: ['member'], status: 'active', provider: 'local',
+    });
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ msg: 'A member with this email already exists' });
+    throw e;
+  }
+  const adder = await User.findById(req.user.id, { name: 1 }).lean();
+  const emailSent = await emailService.sendWelcomeEmail(user, adder?.name);
+  res.json({ ok: true, emailSent, member: mapMember(user) });
+};
+
+// POST /api/members/:id/section — President, Provost or PRO sets the part a member sings
+exports.section = async (req, res) => {
+  if (!has(req, ADDERS)) return res.status(403).json({ msg: "Only the President, Provost or PRO can change a member's part" });
+  const { section } = req.body || {};
+  if (!PARTS.includes(section)) return res.status(400).json({ msg: 'Choose Soprano, Alto, Tenor or Bass' });
+  const user = await load(req, res);
+  if (!user) return;
+  user.section = section;
   await user.save();
   res.json({ ok: true });
 };

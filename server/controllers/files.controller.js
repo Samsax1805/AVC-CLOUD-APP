@@ -8,8 +8,10 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 // (Files uploaded before S3 sit in MongoDB GridFS and are still served by download().)
 const MAX_BYTES = 100 * 1024 * 1024;
 const LINK_SECONDS = 15 * 60;
-const UPLOADERS = ['admin', 'president', 'custodian'];
-const ALLOWED = /^(audio\/|image\/|video\/|application\/pdf$)/;
+// Custodian: songs and audio. Secretary: documents and receipts.
+const UPLOADERS = ['admin', 'president', 'custodian', 'secretary'];
+const OFFICE = 'msword|vnd\\.ms-excel|vnd\\.ms-powerpoint|vnd\\.openxmlformats-officedocument\\.(wordprocessingml\\.document|spreadsheetml\\.sheet|presentationml\\.presentation)';
+const ALLOWED = new RegExp(`^(audio/|image/|video/|application/pdf$|application/(${OFFICE})$)`);
 const S3_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[a-z0-9]{1,8})?$/;
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-north-1' });
@@ -20,10 +22,10 @@ const canUpload = (req) => (req.user.roles || []).some((r) => UPLOADERS.includes
 
 // POST /api/files/upload-url  { name, type, size } → { id, uploadUrl, headers }
 exports.uploadUrl = async (req, res) => {
-  if (!canUpload(req)) return res.status(403).json({ msg: 'Only the Custodian, President or an admin can upload files' });
+  if (!canUpload(req)) return res.status(403).json({ msg: 'Only the Custodian, Secretary, President or an admin can upload files' });
   if (!bucket()) return res.status(503).json({ msg: 'File storage is not configured' });
   const { name = 'file', type = '', size = 0 } = req.body || {};
-  if (!ALLOWED.test(type)) return res.status(415).json({ msg: 'Only audio, video, image or PDF files can be uploaded' });
+  if (!ALLOWED.test(type)) return res.status(415).json({ msg: 'Only audio, video, image, PDF, Word, Excel or PowerPoint files can be uploaded' });
   if (!(size > 0)) return res.status(400).json({ msg: 'Empty file' });
   if (size > MAX_BYTES) return res.status(413).json({ msg: `Files can be up to ${MAX_BYTES / 1048576} MB` });
   const ext = (/\.([a-z0-9]{1,8})$/i.exec(name) || [])[1];

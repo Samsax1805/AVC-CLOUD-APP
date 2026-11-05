@@ -3,7 +3,9 @@ const c = require('../controllers/members.controller');
 const auth = require('../middleware/auth');
 const r = express.Router();
 
+r.post('/', auth, c.add);
 r.post('/:id/approve', auth, c.approve);
+r.post('/:id/section', auth, c.section);
 r.post('/:id/reject', auth, c.reject);
 r.post('/:id/deactivate', auth, c.deactivate);
 r.post('/:id/reactivate', auth, c.reactivate);

@@ -13,7 +13,7 @@ const KEYS = {
 // Executive roles that admins and the president may grant (README role table),
 // plus 'alumni' (Old Member: view-only, replaces any executive role).
 // Only an admin may grant or remove 'admin', and the last admin can't be removed.
-const GRANTABLE = ['president', 'secretary', 'provost', 'custodian', 'electoral', 'alumni'];
+const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'custodian', 'electoral', 'alumni'];
 const MANAGERS = ['admin', 'president'];
 
 const nextRoles = (actorRoles, current, requested, adminCount) => {
@@ -34,6 +34,8 @@ const mapMember = (u) => ({
   provider: u.provider || 'local', joined: u.createdAt ? u.createdAt.toISOString().slice(0, 10) : '',
   status: u.status || 'active', color: '#1a2c60',
 });
+
+exports.mapMember = mapMember;
 
 exports.getAll = async (req, res) => {
   try {
@@ -64,7 +66,7 @@ exports.getAll = async (req, res) => {
 // - a collection missing from the request is left alone (never wiped)
 // - ordinary members and Old Members can add and update records but never delete them
 // - officers may delete only a few records per save; anything bigger is refused before writing
-const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'custodian', 'electoral'];
+const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'pro', 'custodian', 'electoral'];
 const MAX_DELETES_PER_SAVE = 3;
 
 // Polls: the Electoral Committee (and admins) create, edit and delete them; only the President
@@ -141,7 +143,8 @@ exports.putAll = async (req, res) => {
         await R.Misc.updateOne({ key }, { key, data: body[key] }, { upsert: true });
       }
     }
-    // Account status (approve / reject / deactivate / reactivate) only changes via /api/members
+    // Account status (approve / reject / deactivate / reactivate) and other members' parts only change
+    // via /api/members, so an out-of-date copy of the list in someone's browser can't undo them
     if (Array.isArray(body.users)) {
       for (const mu of body.users) {
         const q = mongoose.isValidObjectId(mu.id) ? { _id: mu.id } : { email: (mu.email || '').toLowerCase() };
@@ -151,7 +154,7 @@ exports.putAll = async (req, res) => {
         await User.updateOne({ _id: existing._id }, {
           $set: {
             name: mu.name, roles: nextRoles(actorRoles, existing.roles || ['member'], mu.roles, adminCount),
-            section: mu.voice || mu.section || null,
+            section: existing._id.toString() === req.user.id ? (mu.voice || mu.section || null) : (existing.section || null),
             avatar: mu.avatar || null, dob: mu.dob || '', country: mu.country || '', phone: mu.phone || '',
           },
         });

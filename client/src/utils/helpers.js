@@ -35,6 +35,24 @@ export const PIE_COLORS = ['#7c3aed', '#0284c7', '#e9a63a', '#059669', '#e11d48'
 
 export const VOICE_PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 
+// Song categories (a song can have several): parts of the Mass and seasons, then themes
+export const SONG_CATEGORIES = [
+  { group: 'Mass, seasons & occasions', items: [
+    'Opening / Entrance', 'Praise', 'Thanksgiving', 'Penitential', 'Kyrie', 'Gloria', 'Psalm / Responsorial',
+    'Alleluia / Gospel Acclamation', 'Offertory', 'Communion', 'Adoration', 'Benediction', 'Closing / Recessional',
+    'Advent', 'Christmas', 'Lent', 'Easter', 'Marian', 'Holy Spirit', 'Sacred Heart',
+    'Missionary / Evangelical', 'Vocational', 'Wedding', 'Funeral / Requiem', 'Youth',
+  ] },
+  { group: 'Themes', items: [
+    'Faith and Trust', 'Hope and Encouragement', 'Love and Charity', 'Salvation and Redemption', 'Forgiveness and Mercy',
+    'Discipleship', 'Christian Unity', 'Spiritual Warfare', 'Prayer and Consecration', 'Heaven and Eternal Life',
+    "God's Guidance and Protection",
+  ] },
+];
+
+// Songs uploaded before categories existed have a single free-text tag instead
+export const songCategories = (s) => (s.categories?.length ? s.categories : s.tag ? [s.tag] : []);
+
 export const POSTS = [
   'President',
   'Vice President',

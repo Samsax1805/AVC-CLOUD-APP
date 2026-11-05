@@ -161,9 +161,20 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  // President, Provost or PRO adds a member; the server emails them how to sign in. Returns { emailSent }
+  const addMember = async (details) => {
+    const { data } = await api.post('/members', details).catch((e) => { throw new Error(e.response?.data?.msg || 'Could not add member'); });
+    setUsers((p) => [...p, data.member]);
+    return data;
+  };
+  const setMemberPart = async (person, section) => {
+    await api.post(`/members/${person.id}/section`, { section }).catch((e) => { throw new Error(e.response?.data?.msg || "Could not change the member's part"); });
+    setUsers((p) => p.map((x) => (x.id === person.id ? { ...x, voice: section, section } : x)));
+  };
+
   const retryLoad = () => setLoadAttempt((n) => n + 1);
 
-  const value = { me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const value = { me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

@@ -1,28 +1,28 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { TODAY, uid, shortDate, VOICE_PARTS } from '../utils/helpers';
+import { TODAY, uid, shortDate, VOICE_PARTS, SONG_CATEGORIES, songCategories } from '../utils/helpers';
 import { PERMS } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
-import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOAD_MB } from '../services/files';
+import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOAD_MB, sizeOf } from '../services/files';
 
 const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
 const formatOf = (type) => (type === 'application/pdf' ? 'PDF Score' : type.startsWith('image/') ? 'Image' : type.startsWith('video/') ? 'Video' : type.includes('mpeg') ? 'MP3' : 'Audio');
-const sizeOf = (bytes) => (bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB');
 
 export default function MusicLibrary({ ctx }) {
   const { me, users, songs, setSongs, log, toast, playId, playProg, togglePlay } = ctx;
   const canEdit = PERMS.manageSongs(me);
   const [q, setQ] = useState('');
   const [part, setPart] = useState('All');
+  const [cat, setCat] = useState('All');
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ title: '', part: 'SATB Full', tag: 'Sunday Service', format: 'MP3', fileName: '' });
+  const [form, setForm] = useState({ title: '', part: 'SATB Full', categories: [], format: 'MP3', fileName: '' });
 
   const [file, setFile] = useState(null); // { file, preview, secs }
   const [busy, setBusy] = useState(false);
-  const openNew = () => { setFile(null); setForm({ title: '', part: 'SATB Full', tag: 'Sunday Service', format: 'MP3', fileName: '' }); setModal({ mode: 'new' }); };
+  const openNew = () => { setFile(null); setForm({ title: '', part: 'SATB Full', categories: [], format: 'MP3', fileName: '' }); setModal({ mode: 'new' }); };
   const pick = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -45,13 +45,13 @@ export default function MusicLibrary({ ctx }) {
         const secs = Math.round(file.secs || 0);
         setSongs((p) => [{
           id: uid('s'), title: form.title, part: form.part, format: form.format, size: sizeOf(up.size),
-          duration: secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : '', by: me.id, date: TODAY, tag: form.tag,
+          duration: secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : '', by: me.id, date: TODAY, categories: form.categories,
           cover: covers[Math.floor(Math.random() * covers.length)], fileUrl: up.id, fileName: up.name, mime: up.type, preview: file.preview,
         }, ...p]);
         log('SONG_UPLOAD', `Uploaded "${form.title}"`); toast('Uploaded to the library');
       } catch (e) { return toast(e.message, 'err'); } finally { setBusy(false); }
     } else {
-      setSongs((p) => p.map((s) => (s.id === modal.song.id ? { ...s, title: form.title, part: form.part, tag: form.tag, format: form.format } : s)));
+      setSongs((p) => p.map((s) => (s.id === modal.song.id ? { ...s, title: form.title, part: form.part, categories: form.categories, format: form.format } : s)));
       log('SONG_EDIT', `Edited "${form.title}"`); toast('Song updated');
     }
     setModal(null); setFile(null);
@@ -59,8 +59,15 @@ export default function MusicLibrary({ ctx }) {
   const del = (s) => { deleteFile(s.fileUrl); setSongs((p) => p.filter((x) => x.id !== s.id)); log('SONG_DELETE', `Deleted "${s.title}"`); toast('Song deleted'); };
   const isMedia = (s) => !s.fileUrl || /^(audio|video)\//.test(s.mime || '');
   const openCover = (s) => (isMedia(s) ? togglePlay('song-' + s.id, s.fileUrl) : openFile(s.fileUrl, s.fileName).catch((e) => toast(e.message, 'err')));
-  const list = songs.filter((s) => (part === 'All' || s.part === part) && s.title.toLowerCase().includes(q.toLowerCase()));
-  const paged = usePaged(list, 12, `${q}|${part}`);
+  const toggleCat = (c) => setForm((f) => ({ ...f, categories: f.categories.includes(c) ? f.categories.filter((x) => x !== c) : [...f.categories, c] }));
+  // Search matches the song name or any of its categories
+  const needle = q.trim().toLowerCase();
+  const list = songs.filter((s) => {
+    const cats = songCategories(s);
+    return (part === 'All' || s.part === part) && (cat === 'All' || cats.includes(cat))
+      && (!needle || s.title.toLowerCase().includes(needle) || cats.some((c) => c.toLowerCase().includes(needle)));
+  });
+  const paged = usePaged(list, 12, `${q}|${part}|${cat}`);
 
   return (
     <div className="stack">
@@ -72,7 +79,11 @@ export default function MusicLibrary({ ctx }) {
         </div>
       </div>
       <div className="toolbar">
-        <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search songs…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search by song name or category…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <select className="input sm" aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}>
+          <option value="All">All categories</option>
+          {SONG_CATEGORIES.map((g) => <optgroup key={g.group} label={g.group}>{g.items.map((c) => <option key={c} value={c}>{c}</option>)}</optgroup>)}
+        </select>
         <div className="chip-row">{['All', ...VOICE_PARTS].map((p) => <button key={p} className={`chip ${part === p ? 'on' : ''}`} onClick={() => setPart(p)}>{p}</button>)}</div>
       </div>
       <div className="grid g3">
@@ -90,10 +101,10 @@ export default function MusicLibrary({ ctx }) {
               <div className="song-body">
                 <div className="song-title">{s.title}</div>
                 <div className="muted small">{s.part} · {s.format} · {s.size}</div>
-                <div className="song-meta"><span className="chip sm">{s.tag}</span><span className="muted tiny">{up?.name?.split(' ')[0]} · {shortDate(s.date)}</span></div>
+                <div className="song-meta"><span className="chip-row wrap" style={{ gap: 4 }}>{songCategories(s).slice(0, 3).map((c) => <button type="button" key={c} className="chip sm" title={`Show ${c} songs`} onClick={() => setCat(c)}>{c}</button>)}{songCategories(s).length > 3 && <span className="chip sm" title={songCategories(s).slice(3).join(', ')}>+{songCategories(s).length - 3}</span>}</span><span className="muted tiny">{up?.name?.split(' ')[0]} · {shortDate(s.date)}</span></div>
                 <div className="song-actions">
                   {canEdit ? (<>
-                    <button className="btn btn-sm btn-soft" onClick={() => { setForm({ title: s.title, part: s.part, tag: s.tag, format: s.format, fileName: '' }); setModal({ mode: 'edit', song: s }); }}><Icon name="edit" size={13} /> Edit</button>
+                    <button className="btn btn-sm btn-soft" onClick={() => { setForm({ title: s.title, part: s.part, categories: songCategories(s), format: s.format, fileName: '' }); setModal({ mode: 'edit', song: s }); }}><Icon name="edit" size={13} /> Edit</button>
                     <button className="btn btn-sm btn-danger-soft" onClick={() => del(s)}><Icon name="trash" size={13} /></button>
                   </>) : (<span className="muted tiny">Managed by Custodian & President</span>)}
                 </div>
@@ -110,7 +121,22 @@ export default function MusicLibrary({ ctx }) {
           <div className="field"><label className="label">Voice part</label><select className="input" value={form.part} onChange={(e) => setForm({ ...form, part: e.target.value })}>{VOICE_PARTS.map((p) => <option key={p}>{p}</option>)}</select></div>
           <div className="field"><label className="label">Format</label><select className="input" value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}>{['MP3', 'Audio', 'PDF Score', 'PDF + MP3', 'MIDI', 'Image', 'Video'].map((p) => <option key={p}>{p}</option>)}</select></div>
         </div>
-        <div className="field"><label className="label">Tag / occasion</label><input className="input" value={form.tag} onChange={(e) => setForm({ ...form, tag: e.target.value })} /></div>
+        <div className="field">
+          <label className="label">Categories <span className="muted">— choose all that apply ({form.categories.length} chosen)</span></label>
+          <div style={{ maxHeight: 210, overflowY: 'auto', border: '1.5px solid var(--line)', borderRadius: 8, padding: '8px 10px' }}>
+            {SONG_CATEGORIES.map((g) => (
+              <div key={g.group} style={{ marginBottom: 8 }}>
+                <div className="muted tiny" style={{ fontWeight: 700, margin: '2px 0 6px' }}>{g.group}</div>
+                <div className="chip-row wrap" style={{ gap: 6 }}>
+                  {g.items.map((c) => {
+                    const on = form.categories.includes(c);
+                    return <button type="button" key={c} className="chip sm" aria-pressed={on} onClick={() => toggleCat(c)} style={on ? { background: 'var(--gold)', color: 'var(--navy)', fontWeight: 700 } : undefined}>{on ? '✓ ' : ''}{c}</button>;
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         {modal?.mode === 'new' && (
           <label className="upload-drop">
             {file?.preview ? <img className="upload-preview" src={file.preview} alt="First page preview" /> : <Icon name="upload" size={22} />}

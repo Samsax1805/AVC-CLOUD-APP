@@ -3,12 +3,13 @@ export const ROLES = {
   president: { label: 'President', color: '#6d28d9', bg: '#ede9fe', desc: 'Second-in-command. Approvals, roles, dues, audit.' },
   secretary: { label: 'Secretary', color: '#0369a1', bg: '#e0f2fe', desc: 'Minutes, receipts, documents & announcements.' },
   provost: { label: 'Provost', color: '#047857', bg: '#d1fae5', desc: 'Attendance, absence/lateness debts, probation.' },
+  pro: { label: 'PRO', color: '#a16207', bg: '#fef9c3', desc: 'Public Relations Officer. Adds new members and sets the part each member sings.' },
   custodian: { label: 'Custodian', color: '#be123c', bg: '#ffe4e6', desc: 'Songs, audio & music files.' },
   electoral: { label: 'Electoral Committee', color: '#4338ca', bg: '#e0e7ff', desc: 'Nominations, polls and live election results.' },
   member: { label: 'Member', color: '#475569', bg: '#f1f5f9', desc: 'Chorister. Votes when elections are live.' },
   alumni: { label: 'Old Member', color: '#7c6f57', bg: '#efe9dd', desc: 'Former chorister. View-only: notifications and updates, no attendance, dues or elections.' },
 };
-export const GRANTABLE = ['president', 'secretary', 'provost', 'custodian', 'electoral', 'alumni'];
+export const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'custodian', 'electoral', 'alumni'];
 export const rolesOf = (u) => (u.roles.length ? u.roles : ['member']);
 export const isAlumni = (u) => !!u && (u.roles || []).includes('alumni');
 // Old Members hold no privileges, even if an old role was left behind
@@ -27,6 +28,8 @@ export const PERMS = {
   viewAudit: (u) => hasAny(u, ['admin', 'president']),
   manageMembers: (u) => hasAny(u, ['admin', 'president']),
   approveMembers: (u) => hasAny(u, ['admin', 'president', 'provost']),
+  addMembers: (u) => hasAny(u, ['admin', 'president', 'provost', 'pro']),
+  editParts: (u) => hasAny(u, ['admin', 'president', 'provost', 'pro']),
   goLiveElection: (u) => hasAny(u, ['admin', 'president']),
   manageAnnouncements: (u) => hasAny(u, ['admin', 'president', 'secretary']),
   manageDocuments: (u) => hasAny(u, ['admin', 'president', 'secretary']),
@@ -41,6 +44,7 @@ export const ACT_META = {
   DUES: { l: 'Dues', c: '#10b981' }, ELECTION: { l: 'Election', c: '#6366f1' }, VOTE: { l: 'Vote cast', c: '#4f46e5' },
   ANNOUNCE: { l: 'Announcement', c: '#d97706' }, DOC: { l: 'Document', c: '#0d9488' }, PROBATION: { l: 'Probation', c: '#b45309' },
   DUES_SET: { l: 'Dues setting', c: '#0f766e' }, MEMBER_APPROVED: { l: 'Member approved', c: '#059669' }, MEMBER_REJECTED: { l: 'Member rejected', c: '#dc2626' },
+  MEMBER_ADDED: { l: 'Member added', c: '#059669' }, PART_CHANGED: { l: 'Part changed', c: '#0369a1' },
   MEMBER_DEACTIVATED: { l: 'Member deactivated', c: '#9f1239' }, MEMBER_REACTIVATED: { l: 'Member reactivated', c: '#047857' },
   NOM_SUGGEST: { l: 'Nomination suggested', c: '#6366f1' },
 };
@@ -66,7 +70,7 @@ export const visibleNav = (me) => NAV_DEFS.filter((n) => {
   if (n.id === 'receipts') return PERMS.manageReceipts(me);
   if (n.id === 'dues') return PERMS.manageDues(me);
   if (n.id === 'audit') return PERMS.viewAudit(me);
-  if (n.id === 'members') return PERMS.manageMembers(me) || PERMS.approveMembers(me);
+  if (n.id === 'members') return PERMS.manageMembers(me) || PERMS.approveMembers(me) || PERMS.addMembers(me);
   if (n.id === 'probation') return PERMS.manageProbation(me);
   return true;
 });

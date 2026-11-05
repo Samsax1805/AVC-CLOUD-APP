@@ -2,12 +2,22 @@ import api from './api';
 
 export const MAX_UPLOAD_MB = 100;
 
+// Some browsers leave the type of Word/Excel/PowerPoint files blank: work it out from the name
+const TYPE_BY_EXT = {
+  pdf: 'application/pdf', doc: 'application/msword', xls: 'application/vnd.ms-excel', ppt: 'application/vnd.ms-powerpoint',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+export const DOC_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*';
+export const sizeOf = (bytes) => (bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB');
+
 // Files live in private S3 storage. The server hands out short-lived signed links and
 // the browser uploads/downloads directly, so big files never pass through our server.
 // Returns { id, name, size, type }
 export const uploadFile = async (file, name = file.name || 'file') => {
   if (file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new Error(`File is larger than ${MAX_UPLOAD_MB} MB`);
-  const type = file.type || 'application/octet-stream';
+  const type = file.type || TYPE_BY_EXT[(/\.([a-z0-9]+)$/i.exec(name) || [])[1]?.toLowerCase()] || 'application/octet-stream';
   let slot;
   try {
     ({ data: slot } = await api.post('/files/upload-url', { name, type, size: file.size }));
