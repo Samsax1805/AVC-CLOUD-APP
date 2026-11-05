@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import PhoneField, { joinPhone } from '../components/PhoneField';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -19,6 +20,7 @@ export default function Register({ onSwitch }) {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const [form, setForm] = useState({ name: '', phone: '', email: '', dob: '', password: '' });
+  const [phoneIso, setPhoneIso] = useState('NG');
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
@@ -56,9 +58,10 @@ export default function Register({ onSwitch }) {
     const submit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.phone || !form.email || !form.dob || !form.password) return toast('All fields are required.', 'err');
+    if (form.phone.length < 7) return toast('Please enter a valid phone number (at least 7 digits).', 'err');
     setLoading(true);
     try {
-      const result = await register(form);
+      const result = await register({ ...form, phone: joinPhone(phoneIso, form.phone) });
       toast(result?.message || 'Registration submitted — you can sign in once the President or Provost approves you.');
       onSwitch();
     } catch (err) {
@@ -74,7 +77,7 @@ export default function Register({ onSwitch }) {
           <label className="label light" htmlFor="reg-name">Name</label>
           <input id="reg-name" className="input" value={form.name} onChange={update('name')} placeholder="Enter your full name" />
           <label className="label light" htmlFor="reg-phone">Phone Number</label>
-          <input id="reg-phone" className="input" value={form.phone} onChange={update('phone')} placeholder="Enter your phone number" />
+          <PhoneField id="reg-phone" className="input" iso={phoneIso} num={form.phone} onIso={setPhoneIso} onNum={(phone) => setForm({ ...form, phone })} placeholder="Phone number" />
           <label className="label light" htmlFor="reg-email">Email address</label>
           <input id="reg-email" type="email" className="input" value={form.email} onChange={update('email')} placeholder="Enter your email address" />
           <label className="label light" htmlFor="reg-dob">Date of birth</label>

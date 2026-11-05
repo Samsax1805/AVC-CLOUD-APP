@@ -1,38 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import COUNTRIES from '../data/countries';
+import PhoneField, { parsePhone, joinPhone } from '../components/PhoneField';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
-
-// [UPDATED] Added DR Congo, Sierra Leone, Tanzania, Mozambique, and Cameroon
-const COUNTRIES = [
-  'Nigeria', 'Ghana', 'Kenya', 'South Africa', 
-  'DR Congo', 'Sierra Leone', 'Tanzania', 'Mozambique', 'Cameroon', 
-  'United Kingdom', 'United States', 'Canada', 'Other'
-];
-
-// [UPDATED] Added the new country codes with their flags
-const PHONE_CODES = [
-  { code: '+234', label: '🇳🇬 +234 (NG)' },
-  { code: '+243', label: '🇨🇩 +243 (CD)' }, // DR Congo
-  { code: '+232', label: '🇸🇱 +232 (SL)' }, // Sierra Leone
-  { code: '+255', label: '🇹🇿 +255 (TZ)' }, // Tanzania
-  { code: '+258', label: '🇲🇿 +258 (MZ)' }, // Mozambique
-  { code: '+237', label: '🇨🇲 +237 (CM)' }, // Cameroon
-  { code: '+233', label: '🇬🇭 +233 (GH)' },
-  { code: '+254', label: '🇰🇪 +254 (KE)' },
-  { code: '+27',  label: '🇿🇦 +27 (ZA)' },
-  { code: '+1',   label: '🇺🇸/🇨🇦 +1 (US/CA)' },
-  { code: '+44',  label: '🇬🇧 +44 (UK)' },
-];
-
-// Helper to split an existing phone number into code + digits
-const parsePhone = (raw) => {
-// ... keep the rest of the file exactly the same below this line! ...
-  if (!raw) return { code: '+234', num: '' };
-  const match = PHONE_CODES.find(c => raw.startsWith(c.code));
-  if (match) return { code: match.code, num: raw.replace(match.code, '').replace(/\D/g, '') };
-  return { code: '+234', num: raw.replace(/\D/g, '') }; 
-};
 
 export default function ProfilePage({ ctx }) {
   const { me, setUsers, toast } = ctx || {};
@@ -40,26 +11,20 @@ export default function ProfilePage({ ctx }) {
   const { user, updateProfile, logout } = useAuth();
   
   const currentUser = me || user || {};
-  const initPhone = parsePhone(currentUser.phone);
+  const initPhone = parsePhone(currentUser.phone, currentUser.country);
 
   const [form, setForm] = useState({
     name: currentUser.name || '',
     email: currentUser.email || '',
     dob: currentUser.dob || '', 
     country: currentUser.country || '', 
-    phoneCode: initPhone.code,
+    phoneIso: initPhone.iso,
     phoneNumber: initPhone.num,
     part: currentUser.voice || currentUser.section || '',
   });
   
   const [saving, setSaving] = useState(false);
   const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-
-  // [NEW] Strips all letters/symbols and limits to 15 digits
-  const handlePhoneNumChange = (e) => {
-    const clean = e.target.value.replace(/\D/g, '').slice(0, 15);
-    setForm({ ...form, phoneNumber: clean });
-  };
 
   const save = async () => {
     if (!form.name.trim()) return toast?.('Full name is required.', 'err');
@@ -75,7 +40,7 @@ export default function ProfilePage({ ctx }) {
     setSaving(true);
     try {
       // Combine code + number before saving to database
-      const fullPhone = `${form.phoneCode}${form.phoneNumber}`;
+      const fullPhone = joinPhone(form.phoneIso, form.phoneNumber);
       
       const updated = await updateProfile({ 
         name: form.name.trim(), 
@@ -101,7 +66,7 @@ export default function ProfilePage({ ctx }) {
 
   const formBody = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))', gap: '16px' }}>
         
         <div>
           <label style={labelStyle}>Full name</label>
@@ -121,34 +86,25 @@ export default function ProfilePage({ ctx }) {
         <div>
           <label style={labelStyle}>Country</label>
           <input list="country-list" value={form.country} onChange={upd('country')} placeholder="e.g. Nigeria" style={inputStyle} />
-          <datalist id="country-list">{COUNTRIES.map((c) => <option key={c} value={c} />)}</datalist>
+          <datalist id="country-list">{COUNTRIES.map((c) => <option key={c.iso} value={c.name} />)}</datalist>
         </div>
         
         {/* [NEW] Phone Number with Country Code & Validation */}
-        <div style={{ gridColumn: 'span 2' }}>
+        <div style={{ gridColumn: '1 / -1' }}>
           <label style={labelStyle}>Telephone number</label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <select 
-              value={form.phoneCode} 
-              onChange={upd('phoneCode')} 
-              style={{ ...inputStyle, width: '140px', flexShrink: 0, cursor: 'pointer' }}
-            >
-              {PHONE_CODES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
-            </select>
-            <input 
-              type="tel" 
-              value={form.phoneNumber} 
-              onChange={handlePhoneNumChange} 
-              placeholder="8012345678" 
-              style={{ ...inputStyle, flex: 1, letterSpacing: '1px' }} 
-            />
-          </div>
+          <PhoneField
+            iso={form.phoneIso}
+            num={form.phoneNumber}
+            onIso={(phoneIso) => setForm({ ...form, phoneIso })}
+            onNum={(phoneNumber) => setForm({ ...form, phoneNumber })}
+            style={inputStyle}
+          />
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#888' }}>
             Numbers only. Letters and symbols are automatically removed.
           </p>
         </div>
 
-        <div style={{ gridColumn: 'span 2' }}>
+        <div style={{ gridColumn: '1 / -1' }}>
           <label style={labelStyle}>The part you sing</label>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
             {PARTS.map((p) => (
