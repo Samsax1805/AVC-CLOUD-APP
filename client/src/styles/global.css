@@ -447,3 +447,4 @@ button.chip:hover{background:var(--navy2)}
  .dash-row{display:contents}
  .dash-stats{order:1}.dash-feed{order:2}.dash-att{order:3}.dash-voice{order:4}.dash-dues{order:5}
 }
+.bday-sign{margin-top:6px;font-weight:700;font-style:italic;opacity:1}

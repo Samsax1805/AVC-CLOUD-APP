@@ -65,7 +65,8 @@ export default function BirthdayBanner({ users = [], me }) {
         {meToday ? (
           <>
             <h3>Happy Birthday, {first(me)}! 🎂</h3>
-            <p>The whole St. Barnabas Amazing Voices family celebrates you today. May your year be full of joy and beautiful songs.{others.length ? ` You share the day with ${names(others)}!` : ''}</p>
+            <p>The whole St. Barnabas Amazing Voices family celebrates you today. Thank you for the gift of your voice and your joy. May the Lord bless you with grace, good health and beautiful songs all year.{others.length ? ` You share the day with ${names(others)}!` : ''}</p>
+            <p className="bday-sign">With love from the entire choir ❤️</p>
           </>
         ) : (
           <>

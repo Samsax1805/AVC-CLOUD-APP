@@ -148,3 +148,40 @@ exports.sendSecurityAlert = async (recipients, subject, lines) => {
     console.error('❌ Security alert failed:', err.message);
   }
 };
+
+// The choir's birthday wish to a celebrant. Never throws.
+exports.sendBirthdayWish = async (member, firstName) => {
+  const site = (process.env.CLIENT_URL || '').replace(/\/dashboard$/, '');
+  try {
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL,
+      to: member.email,
+      subject: `Happy Birthday, ${firstName}! 🎂 From your choir family`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;background:#faf7f0;padding:32px;border-radius:12px;border:1px solid #e3d8c2">
+          <div style="text-align:center;margin-bottom:20px">
+            <div style="display:inline-block;padding:8px 16px;background:#1a2c60;color:#e9a63a;border-radius:6px;font-weight:700;letter-spacing:1px">AVC CLOUD</div>
+          </div>
+          <div style="text-align:center;font-size:44px;line-height:1">🎂🎶🎉</div>
+          <h2 style="color:#1a2c60;text-align:center;margin:12px 0 6px">Happy Birthday, ${esc(firstName)}!</h2>
+          <p style="color:#555;text-align:center;font-size:15px;line-height:1.6">
+            Today the whole St. Barnabas Amazing Voices family celebrates you.<br>
+            Thank you for the gift of your voice, your time and your joy.
+          </p>
+          <div style="background:#fff;border:2px dashed #e9a63a;border-radius:10px;padding:18px 20px;margin:20px 0;color:#333;font-size:15px;line-height:1.7;text-align:center">
+            May the Lord bless you and keep you,<br>fill your new year with grace, good health and beautiful songs,<br>and grant you every desire of your heart.
+          </div>
+          <p style="color:#1a2c60;text-align:center;font-weight:700;margin:0">With love from the entire choir ❤️</p>
+          ${site ? `<p style="text-align:center;margin-top:20px"><a href="${esc(site)}" style="display:inline-block;background:#1a2c60;color:#e9a63a;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:700">See your wishes on AVC Cloud</a></p>` : ''}
+          <div style="text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #e3d8c2;color:#999;font-size:12px">
+            © 2026 St. Barnabas Amazing Voices Choir
+          </div>
+        </div>
+      `,
+    });
+    return true;
+  } catch (err) {
+    console.error('❌ Birthday email failed:', err.message);
+    return false;
+  }
+};

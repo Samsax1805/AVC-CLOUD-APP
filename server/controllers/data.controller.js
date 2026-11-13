@@ -112,7 +112,8 @@ exports.putAll = async (req, res) => {
       if (!Array.isArray(body[key])) continue;
       const ids = body[key].map((item) => item && (item.id || item.uid)).filter(Boolean);
       const existing = (await M.find({}, { uid: 1 }).lean()).map((d) => d.uid);
-      const removed = existing.filter((id) => !ids.includes(id));
+      // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
+      const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && String(id).startsWith('bday-')));
       if (removed.length && isOfficer && removed.length > MAX_DELETES_PER_SAVE) {
         console.warn(`PUT /data refused: would delete ${removed.length} ${key} (user ${req.user.id})`);
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
