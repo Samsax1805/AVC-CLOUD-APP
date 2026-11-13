@@ -177,7 +177,7 @@ export default function MembersRoles({ ctx }) {
                     <td>
                       {!off && (
                         <div className="grant-cell">
-                          <select className="input sm" value={grant[u.id] || ''} onChange={(e) => setGrant((g) => ({ ...g, [u.id]: value }))}>
+                          <select className="input sm" value={grant[u.id] || ''} onChange={({ target: { value } }) => setGrant((g) => ({ ...g, [u.id]: value }))}>
                             <option value="">Select role…</option>
                             {GRANTABLE.map((r) => <option key={r} value={r} disabled={u.roles.includes(r)}>{ROLES[r].label}</option>)}
                           </select>
