@@ -16,7 +16,7 @@ export const EVENT = {
   member_deactivated: ['Member deactivated', '#9f1239'], member_reactivated: ['Member reactivated', '#047857'], part_changed: ['Part changed', '#0369a1'],
   role_granted: ['Role granted', '#d97706'], role_revoked: ['Role removed', '#b45309'], password_reset: ['Password reset', '#7c3aed'],
   password_changed: ['Password changed', '#7c3aed'], signed_out_everywhere: ['Signed out everywhere', '#1a2c60'], unlocked: ['Account unlocked', '#047857'],
-  roster_published: ['Psalmist roster published', '#9d174d'], roster_unpublished: ['Psalmist roster unpublished', '#64748b'], roster_imported: ['Psalmist roster imported', '#9d174d'],
+  roster_published: ['Psalmist roster published', '#9d174d'], roster_unpublished: ['Psalmist roster unpublished', '#64748b'], roster_imported: ['Psalmist roster imported', '#9d174d'],  psalmist_changed: ['Psalmist changed', '#9d174d'],
 };
 export const METHOD = { google: 'Google', password: 'Password', reset: 'Password reset' };
 const FAILED = ['wrong_password', 'unknown_account', 'locked', 'blocked'];

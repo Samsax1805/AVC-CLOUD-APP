@@ -136,7 +136,9 @@ export default function PsalmistsPage({ ctx }) {
   const pickAllShown = () => setPicked((s) => (shown.every((d) => s.has(d.id)) ? new Set() : new Set(shown.map((d) => d.id))));
 
   const openNew = () => { setWho(''); setConfirmDelete(false); setEdit({ ...blank, date: year === thisYear ? today : `${year}-01-01`, ...describe(year === thisYear ? today : `${year}-01-01`), auto: true }); };
-  const openEdit = (d) => { setWho(''); setConfirmDelete(false); setEdit({ ...d, psalmistIds: d.psalmists.map((p) => p.id), auto: false }); };
+  const openEdit = (d, quick = false) => { setWho(''); setConfirmDelete(false); setEdit({ ...d, psalmistIds: d.psalmists.map((p) => p.id), was: d.psalmists.map((p) => p.id), auto: false, quick }); };
+  // How often each member is already down to sing this year, so the load can be shared fairly
+  const load_ = useMemo(() => days.reduce((m, d) => { d.psalmists.forEach((p) => { m[p.id] = (m[p.id] || 0) + 1; }); return m; }, {}), [days]);
   const setDate = (date) => setEdit((e) => (e.auto && date ? { ...e, ...describe(date), date } : { ...e, date }));
   const useCalendar = () => setEdit((e) => ({ ...e, ...describe(e.date), date: e.date, auto: true }));
   const togglePsalmist = (id) => setEdit((e) => {
@@ -145,6 +147,11 @@ export default function PsalmistsPage({ ctx }) {
     return { ...e, psalmistIds: has ? e.psalmistIds.filter((x) => x !== id) : [...e.psalmistIds, id] };
   });
   const save = () => {
+    if (edit.quick) {
+      const same = edit.psalmistIds.length === edit.was.length && edit.psalmistIds.every((id) => edit.was.includes(id));
+      if (same) { setEdit(null); return; }
+      return run(() => api.patch(`/psalmists/${edit.id}`, { psalmistIds: edit.psalmistIds }), edit.published && edit.date >= today ? 'Psalmists changed — they have been told in their messages' : 'Psalmists saved').then((ok) => ok && setEdit(null));
+    }
     if (!edit.date) return toast('Choose a date', 'err');
     if (!edit.title.trim()) return toast('Enter a title for the day', 'err');
     const body = { date: edit.date, title: edit.title, rank: edit.rank, season: edit.season, color: edit.color, cycle: edit.cycle, note: edit.note, psalmistIds: edit.psalmistIds };
@@ -286,7 +293,8 @@ export default function PsalmistsPage({ ctx }) {
                 {planner && (
                   <div className="ps-act">
                     <span className="act-tag" style={d.published ? { background: '#0596691a', color: '#059669' } : { background: '#64748b1a', color: '#64748b' }}>{d.published ? 'Published' : 'Draft'}</span>
-                    <button className="btn btn-sm btn-soft" onClick={() => openEdit(d)}><Icon name="edit" size={12} /> {d.psalmists.length ? 'Edit' : 'Assign'}</button>
+                    <button className={`btn btn-sm ${d.psalmists.length ? 'btn-soft' : 'btn-pri'}`} onClick={() => openEdit(d, true)}><Icon name="user" size={12} /> {d.psalmists.length ? 'Change' : 'Assign'}</button>
+                    <button className="btn btn-sm btn-ghost ps-edit" title="Edit the day's details" aria-label={`Edit ${d.title}`} onClick={() => openEdit(d)}><Icon name="edit" size={12} /></button>
                   </div>
                 )}
               </div>
@@ -345,8 +353,15 @@ export default function PsalmistsPage({ ctx }) {
         </>)}
       </Modal>
 
-      <Modal open={!!edit} wide onClose={() => setEdit(null)} title={edit?.id ? 'Edit day' : 'Add a day or event'}>
+      <Modal open={!!edit} wide onClose={() => setEdit(null)} title={edit?.quick ? (edit.was.length ? 'Change psalmist' : 'Assign psalmist') : edit?.id ? 'Edit day' : 'Add a day or event'}>
         {edit && (<>
+          {edit.quick && (
+            <div className="ps-quick-day" style={{ borderColor: colorOf(edit) }}>
+              <b>{edit.title}</b>
+              <span className="muted tiny">{longDate(edit.date)} · <span style={{ color: edit.published ? '#059669' : '#64748b', fontWeight: 700 }}>{edit.published ? 'Published' : 'Draft'}</span></span>
+            </div>
+          )}
+          {!edit.quick && <>
           <div className="grid g2">
             <div className="field"><label className="label" htmlFor="ps-date">Date</label><input id="ps-date" type="date" className="input" value={edit.date} onChange={(e) => setDate(e.target.value)} /></div>
             <div className="field"><label className="label" htmlFor="ps-rank">Type</label><select id="ps-rank" className="input" value={edit.rank} onChange={(e) => setEdit({ ...edit, rank: e.target.value, auto: false })}>{RANKS.map((r) => <option key={r}>{r}</option>)}</select></div>
@@ -359,19 +374,20 @@ export default function PsalmistsPage({ ctx }) {
             <div className="field"><label className="label" htmlFor="ps-season">Season</label><select id="ps-season" className="input" value={edit.season} onChange={(e) => setEdit({ ...edit, season: e.target.value })}>{SEASONS.map((s) => <option key={s}>{s}</option>)}</select></div>
             <div className="field"><label className="label" htmlFor="ps-cycle">Cycle</label><input id="ps-cycle" className="input" value={edit.cycle} onChange={(e) => setEdit({ ...edit, cycle: e.target.value })} placeholder="e.g. Year A" /></div>
           </div>
+          </>}
           <div className="field">
             <label className="label">Psalmist(s) <span className="muted">— {edit.psalmistIds.length} of up to {MAX_PSALMISTS}</span></label>
             <div className="ps-chosen">{edit.psalmistIds.map((id) => { const m = data.members.find((x) => x.id === id); return <button type="button" key={id} className="chip sm ps-on" onClick={() => togglePsalmist(id)}>{m?.name || 'Former member'} ✕</button>; })}</div>
             <input className="input" value={who} onChange={(e) => setWho(e.target.value)} placeholder="Search members…" style={{ marginTop: 6 }} />
             <div className="ps-pickers">
               {data.members.filter((m) => !edit.psalmistIds.includes(m.id) && m.name.toLowerCase().includes(who.toLowerCase())).slice(0, 30).map((m) => (
-                <button type="button" key={m.id} className="chip sm" onClick={() => togglePsalmist(m.id)}>{m.name}{m.part ? ` · ${m.part}` : ''}</button>
+                <button type="button" key={m.id} className="chip sm" onClick={() => togglePsalmist(m.id)}>{m.name}{m.part ? ` · ${m.part}` : ''}{load_[m.id] ? <span className="ps-load" title={`Already down for ${load_[m.id]} day(s) in ${year}`}>{load_[m.id]}×</span> : null}</button>
               ))}
             </div>
           </div>
-          <div className="field"><label className="label" htmlFor="ps-note">Note (optional)</label><input id="ps-note" className="input" value={edit.note} maxLength={500} onChange={(e) => setEdit({ ...edit, note: e.target.value })} placeholder="e.g. Psalm 85 — Lord, let us see your kindness" /></div>
+          {!edit.quick && <div className="field"><label className="label" htmlFor="ps-note">Note (optional)</label><input id="ps-note" className="input" value={edit.note} maxLength={500} onChange={(e) => setEdit({ ...edit, note: e.target.value })} placeholder="e.g. Psalm 85 — Lord, let us see your kindness" /></div>}
           <div className="modal-foot" style={{ justifyContent: 'space-between' }}>
-            <div>{edit.id && (confirmDelete
+            <div>{edit.quick ? <button className="btn btn-sm btn-ghost" onClick={() => setEdit({ ...edit, quick: false })}><Icon name="edit" size={12} /> Edit day details</button> : edit.id && (confirmDelete
               ? <button className="btn btn-sm btn-danger-soft" disabled={busy} onClick={remove}>Yes, remove this day</button>
               : <button className="btn btn-sm btn-ghost" onClick={() => setConfirmDelete(true)}><Icon name="trash" size={12} /> Remove</button>)}</div>
             <div className="chip-row">
@@ -379,7 +395,9 @@ export default function PsalmistsPage({ ctx }) {
               <button className="btn btn-pri" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
             </div>
           </div>
-          {edit.id && edit.published && <p className="muted tiny" style={{ marginBottom: 0 }}>This day is published: members see your changes straight away, and new psalmists get their reminders.</p>}
+          {edit.id && <p className="muted tiny" style={{ marginBottom: 0 }}>{edit.published
+            ? 'This day is published: members see the change straight away. Anyone added or taken off is told in their messages, and new psalmists get their 2-week and 1-week reminders.'
+            : 'This day is still a draft: only planners see it until you publish. You can change the psalmist again at any time, before or after publishing.'}</p>}
         </>)}
       </Modal>
     </div>

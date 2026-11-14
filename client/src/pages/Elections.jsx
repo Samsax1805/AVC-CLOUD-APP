@@ -241,24 +241,9 @@ export default function ElectionsPage({ ctx }) {
               </div>
             )}
             <div className="grid g2">
-              {POSTS.map((p) => (
-                <div className="card nom-card" key={p}>
-                  <div className="nom-h"><h4>{p}</h4><span className="chip sm">{(draftNom[p] || []).filter(isEligible).length} nominated</span></div>
-                  <div className="nom-grid">
-                    {members.map((u) => {
-                      const on = (draftNom[p] || []).includes(u.id);
-                      return (
-                        <button key={u.id} className={`nom-chip ${on ? 'on' : ''}`} onClick={() => togNom(p, u.id)}>
-                          <Avatar user={u} size={22} />{u.name.split(' ')[0]}{on && <Icon name="check" size={12} />}
-                        </button>
-                      );
-                    })}
-                    {!members.length && <span className="muted tiny">No active members yet.</span>}
-                  </div>
-                </div>
-              ))}
+              {POSTS.map((p) => <NomCard key={p} post={p} ids={draftNom[p] || []} members={members} findUser={findUser} isEligible={isEligible} onToggle={(id) => togNom(p, id)} />)}
             </div>
-            <div className="modal-foot">{nomDirty && <span className="muted small" style={{ marginRight: 'auto' }}>Unsaved changes</span>}<button className="btn btn-pri" onClick={saveNoms}><Icon name="check" size={15} /> Save nomination list</button></div>
+            <div className={`nom-save ${nomDirty ? 'dirty' : ''}`}>{nomDirty && <span className="muted small">Unsaved changes</span>}<button className="btn btn-pri" onClick={saveNoms}><Icon name="check" size={15} /> Save nomination list</button></div>
           </div>
         )}
         <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create a new poll">
@@ -313,6 +298,43 @@ export default function ElectionsPage({ ctx }) {
   );
 }
 
+/* ---- One post on the nomination list: chosen nominees, plus a search to add more ---- */
+function NomCard({ post, ids, members, findUser, isEligible, onToggle }) {
+  const [q, setQ] = useState('');
+  const term = q.trim().toLowerCase();
+  const matches = term ? members.filter((u) => !ids.includes(u.id) && u.name.toLowerCase().includes(term)).slice(0, 6) : [];
+  return (
+    <div className="card nom-card">
+      <div className="nom-h"><h4>{post}</h4><span className="chip sm">{ids.filter(isEligible).length} nominated</span></div>
+      <div className="nom-grid">
+        {ids.map((id) => {
+          const u = findUser(id);
+          return (
+            <button key={id} className="nom-chip on" onClick={() => onToggle(id)} title="Remove from the list">
+              <Avatar user={u} size={22} /><span className="nom-name">{u?.name || 'Former member'}</span><Icon name="x" size={12} />
+            </button>
+          );
+        })}
+        {!ids.length && <span className="muted tiny">Nobody nominated yet.</span>}
+      </div>
+      <div className="nom-add">
+        <Icon name="search" size={14} />
+        <input className="input sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder={members.length ? 'Add a nominee — type a name…' : 'No active members yet'} disabled={!members.length} aria-label={`Add a nominee for ${post}`} />
+      </div>
+      {term && (
+        <div className="nom-results">
+          {matches.map((u) => (
+            <button key={u.id} className="nom-result" onClick={() => { onToggle(u.id); setQ(''); }}>
+              <Avatar user={u} size={26} /><span><b>{u.name}</b>{u.voice && <span className="muted tiny"> · {u.voice}</span>}</span><Icon name="plus" size={14} />
+            </button>
+          ))}
+          {!matches.length && <span className="muted tiny">No member matches “{q.trim()}”.</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---- Member nomination suggestion form ---- */
 function SuggestNom({ ctx }) {
   const { me, users, members = [], pendingNoms = [], setPendingNoms, log, toast, notify } = ctx;
@@ -328,7 +350,7 @@ function SuggestNom({ ctx }) {
     setCand('');
   };
   return (
-    <div className="grant-cell">
+    <div className="nom-suggest">
       <select className="input sm" value={post} onChange={(e) => setPost(e.target.value)}>{POSTS.map((p) => <option key={p}>{p}</option>)}</select>
       <select className="input sm" value={cand} onChange={(e) => setCand(e.target.value)}><option value="">Choose member…</option>{members.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
       <button className="btn btn-sm btn-pri" onClick={submit}>Submit</button>

@@ -40,10 +40,22 @@ const run = async (now = new Date(), { ignoreHour = false } = {}) => {
   return sent;
 };
 
+// A planner changed who sings on a published day: tell the people added and taken off, in their private messages
+const notifyChange = async (day, { added = [], removed = [] }) => {
+  const { date: today } = lagosNow(new Date());
+  if (day.date < today) return;
+  const when = `${dayLabel(day.date)}, ${day.title}`;
+  const notes = [
+    ...added.map((uid) => ({ userId: String(uid), from: 'bot', text: `🎤 You have been assigned as the responsorial psalmist for ${when}.${day.note ? `\nNote: ${day.note}` : ''}\nSee the Psalmists page for the full list.` })),
+    ...removed.map((uid) => ({ userId: String(uid), from: 'bot', text: `🎤 Change to the psalmist list: you are no longer down to sing on ${when}. Thank you — see the Psalmists page for the latest list.` })),
+  ];
+  if (notes.length) await ChatMessage.insertMany(notes);
+};
+
 const start = () => {
   const tick = () => run().catch((e) => console.error('Psalmist reminder check failed:', e.message));
   tick();
   setInterval(tick, CHECK_EVERY_MS).unref();
 };
 
-module.exports = { start, run, daysBetween };
+module.exports = { start, run, notifyChange, daysBetween };

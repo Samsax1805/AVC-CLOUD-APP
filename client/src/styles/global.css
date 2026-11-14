@@ -276,6 +276,20 @@ button.chip:hover{background:var(--navy2)}
 .nom-chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 7px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);font-size:12px;font-weight:600;color:#5c5545;transition:.13s}
 .nom-chip:hover{border-color:var(--gold)}
 .nom-chip.on{background:#fdf3df;border-color:var(--gold);color:#7a5a17}
+.nom-chip .nom-name{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nom-add{position:relative;display:flex;align-items:center}
+.nom-add svg{position:absolute;left:11px;color:var(--mut);pointer-events:none}
+.nom-add .input{padding-left:32px;width:100%}
+.nom-results{display:flex;flex-direction:column;gap:4px;margin-top:-4px}
+.nom-result{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;border:1.5px solid var(--line);background:var(--card);text-align:left;font-size:13px;transition:.13s;width:100%}
+.nom-result>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nom-result:hover{border-color:var(--gold);background:#fdf8ec}
+.nom-result svg{color:var(--gold2);flex-shrink:0}
+.nom-save{position:sticky;bottom:12px;z-index:5;display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:4px}
+.nom-save.dirty{background:var(--card);border:1.5px solid var(--gold);border-radius:12px;padding:10px 12px;box-shadow:0 10px 30px rgba(14,28,61,.15)}
+.nom-save.dirty .muted{margin-right:auto}
+.nom-suggest{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center}
+.nom-suggest .input{width:100%;min-width:0}
 /* ===== MEMBERS / PROFILE ===== */
 .grant-cell{display:flex;gap:8px;align-items:center}
 .profile-card{padding:0;overflow:hidden}
@@ -329,6 +343,21 @@ button.chip:hover{background:var(--navy2)}
  .topbar{padding:11px 16px}
  .vn-row{flex-wrap:wrap}.vn-main{width:100%}
  .roster-row{flex-wrap:wrap}
+}
+@media(max-width:600px){
+ .nom-suggest{grid-template-columns:1fr}
+ .nom-suggest .btn{width:100%;justify-content:center;padding:10px}
+ .card-h:has(+ .nom-suggest){flex-wrap:wrap;gap:6px}
+ .res-row{flex-wrap:wrap;row-gap:6px}
+ .res-name{width:auto;flex:1;min-width:0}
+ .res-track{flex-basis:100%;order:3}
+ .res-num{width:auto}
+ .poll-h h3{font-size:16px}
+ .cand-row{padding:10px 12px;gap:10px}
+ .poll-actions .btn{flex:1 1 auto;justify-content:center}
+ .nom-save{bottom:76px}
+ .nom-save:not(.dirty) .btn,.nom-save.dirty{width:100%}
+ .nom-save:not(.dirty) .btn{justify-content:center}
 }
 .notif-row.unread{background:#fdf6e6}
 .pend-card{border-color:var(--gold);background:#fdf6e6}
@@ -524,6 +553,11 @@ button.chip:hover{background:var(--navy2)}
 .chip.sm.ps-me{background:#9d174d;color:#fff}
 .ps-act{display:flex;align-items:center;gap:8px;margin-left:auto}
 .ps-chosen{display:flex;gap:6px;flex-wrap:wrap;min-height:4px}
+.ps-quick-day{display:flex;flex-direction:column;gap:3px;padding:10px 14px;border-left:4px solid;border-radius:10px;background:#faf5e8;margin-bottom:14px}
+.ps-quick-day b{font-size:14.5px;color:var(--ink)}
+.ps-load{margin-left:6px;padding:1px 6px;border-radius:99px;background:#e3d8c2;color:#6b5a35;font-size:10px;font-weight:700}
+.ps-edit{padding:6px 8px}
+.shell.dark .ps-quick-day{background:#1a2c55}
 .ps-pickers{display:flex;gap:6px;flex-wrap:wrap;max-height:150px;overflow-y:auto;margin-top:8px;padding:2px}
 .shell.dark .ps-month-h,.shell.dark .ps-date{background:#101f42;color:#eee7d6}
 .shell.dark .ps-row.mine,.shell.dark .ps-mine{background:#2a1530}

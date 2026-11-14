@@ -75,6 +75,7 @@ exports.update = async (req, res) => {
   const day = await PsalmDay.findById(req.params.id);
   if (!day) return res.status(404).json({ msg: 'Day not found' });
   const b = req.body || {};
+  let changedPsalmists = null;
   if (b.date !== undefined) {
     if (!DATE.test(b.date)) return res.status(400).json({ msg: 'Choose a date' });
     if (b.date !== day.date) day.reminders = [];
@@ -85,11 +86,21 @@ exports.update = async (req, res) => {
   if (b.psalmistIds !== undefined) {
     const ids = await validPsalmists(b.psalmistIds);
     if (!ids) return res.status(400).json({ msg: 'Psalmists must be active members' });
+    const before = (day.psalmistIds || []).map(String);
+    changedPsalmists = { added: ids.filter((id) => !before.includes(id)), removed: before.filter((id) => !ids.includes(id)) };
     day.reminders = (day.reminders || []).filter((r) => ids.includes(r.split(':')[0]));
     day.psalmistIds = ids;
   }
   day.updatedBy = req.user.id;
   await day.save();
+  if (changedPsalmists && (changedPsalmists.added.length || changedPsalmists.removed.length)) {
+    const names = Object.fromEntries((await User.find({ _id: { $in: [...changedPsalmists.added, ...changedPsalmists.removed] } }, { name: 1 }).lean()).map((u) => [String(u._id), u.name]));
+    const list = (ids) => ids.map((id) => names[id] || 'a former member').join(', ');
+    await security.recordAction(req, 'psalmist_changed', { id: req.user.id, name: 'Psalmist roster' },
+      `${day.date} ${day.title}${day.published ? '' : ' (draft)'}: ${[changedPsalmists.added.length && `added ${list(changedPsalmists.added)}`, changedPsalmists.removed.length && `removed ${list(changedPsalmists.removed)}`].filter(Boolean).join('; ')}`);
+    // Once a day is published, the people affected hear about it straight away (reminders still follow for the new ones)
+    if (day.published) await reminders.notifyChange(day, changedPsalmists);
+  }
   if (day.published) await reminders.run(new Date(), { ignoreHour: true });
   res.json({ ok: true });
 };
