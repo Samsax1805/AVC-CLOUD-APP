@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { TODAY, uid, shortDate, VOICE_PARTS, SONG_CATEGORIES, songCategories } from '../utils/helpers';
+import { TODAY, uid, shortDate, VOICE_PARTS, SONG_CATEGORIES, songCategories, ALL_PARTS, songParts, partsLabel } from '../utils/helpers';
 import { PERMS } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
@@ -18,11 +18,11 @@ export default function MusicLibrary({ ctx }) {
   const [part, setPart] = useState('All');
   const [cat, setCat] = useState('All');
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ title: '', part: 'SATB Full', categories: [], format: 'MP3', fileName: '' });
+  const [form, setForm] = useState({ title: '', part: ALL_PARTS, categories: [], format: 'MP3', fileName: '' });
 
   const [file, setFile] = useState(null); // { file, preview, secs }
   const [busy, setBusy] = useState(false);
-  const openNew = () => { setFile(null); setForm({ title: '', part: 'SATB Full', categories: [], format: 'MP3', fileName: '' }); setModal({ mode: 'new' }); };
+  const openNew = () => { setFile(null); setForm({ title: '', part: ALL_PARTS, categories: [], format: 'MP3', fileName: '' }); setModal({ mode: 'new' }); };
   const pick = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -59,12 +59,19 @@ export default function MusicLibrary({ ctx }) {
   const del = (s) => { deleteFile(s.fileUrl); setSongs((p) => p.filter((x) => x.id !== s.id)); log('SONG_DELETE', `Deleted "${s.title}"`); toast('Song deleted'); };
   const isMedia = (s) => !s.fileUrl || /^(audio|video)\//.test(s.mime || '');
   const openCover = (s) => (isMedia(s) ? togglePlay('song-' + s.id, s.fileUrl) : openFile(s.fileUrl, s.fileName).catch((e) => toast(e.message, 'err')));
+  // "All parts" switches every part on; any single part can then be switched off again
+  const formParts = songParts(form);
+  const togglePart = (p) => {
+    const next = formParts.includes(p) ? formParts.filter((x) => x !== p) : [...formParts, p];
+    if (!next.length) return toast('Choose at least one part', 'err');
+    setForm((f) => ({ ...f, part: partsLabel(next) }));
+  };
   const toggleCat = (c) => setForm((f) => ({ ...f, categories: f.categories.includes(c) ? f.categories.filter((x) => x !== c) : [...f.categories, c] }));
   // Search matches the song name or any of its categories
   const needle = q.trim().toLowerCase();
   const list = songs.filter((s) => {
     const cats = songCategories(s);
-    return (part === 'All' || s.part === part) && (cat === 'All' || cats.includes(cat))
+    return (part === 'All' || songParts(s).includes(part)) && (cat === 'All' || cats.includes(cat))
       && (!needle || s.title.toLowerCase().includes(needle) || cats.some((c) => c.toLowerCase().includes(needle)));
   });
   const paged = usePaged(list, 12, `${q}|${part}|${cat}`);
@@ -100,7 +107,7 @@ export default function MusicLibrary({ ctx }) {
               {playing && <div className="progress slim"><div style={{ width: playProg + '%' }} /></div>}
               <div className="song-body">
                 <div className="song-title">{s.title}</div>
-                <div className="muted small">{s.part} · {s.format} · {s.size}</div>
+                <div className="muted small">{partsLabel(songParts(s))} · {s.format} · {s.size}</div>
                 <div className="song-meta"><span className="chip-row wrap" style={{ gap: 4 }}>{songCategories(s).slice(0, 3).map((c) => <button type="button" key={c} className="chip sm" title={`Show ${c} songs`} onClick={() => setCat(c)}>{c}</button>)}{songCategories(s).length > 3 && <span className="chip sm" title={songCategories(s).slice(3).join(', ')}>+{songCategories(s).length - 3}</span>}</span><span className="muted tiny">{up?.name?.split(' ')[0]} · {shortDate(s.date)}</span></div>
                 <div className="song-actions">
                   {canEdit ? (<>
@@ -117,8 +124,14 @@ export default function MusicLibrary({ ctx }) {
       {!list.length && <EmptyState icon="music" text="No songs match your search." />}
       <Modal open={!!modal} onClose={() => setModal(null)} title={modal?.mode === 'new' ? 'Upload a song' : 'Edit song'}>
         <div className="field"><label className="label">Song title</label><input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Hallelujah Anthem" /></div>
+        <div className="field">
+          <label className="label">Voice parts <span className="muted">— {partsLabel(formParts)}</span></label>
+          <div className="chip-row wrap" style={{ gap: 6 }}>
+            <button type="button" className={`chip sm ${formParts.length === VOICE_PARTS.length ? 'ps-on' : ''}`} aria-pressed={formParts.length === VOICE_PARTS.length} onClick={() => setForm((f) => ({ ...f, part: ALL_PARTS }))}>All parts</button>
+            {VOICE_PARTS.map((p) => <button type="button" key={p} className={`chip sm ${formParts.includes(p) ? 'ps-on' : ''}`} aria-pressed={formParts.includes(p)} onClick={() => togglePart(p)}>{formParts.includes(p) ? '✓ ' : ''}{p}</button>)}
+          </div>
+        </div>
         <div className="grid g2">
-          <div className="field"><label className="label">Voice part</label><select className="input" value={form.part} onChange={(e) => setForm({ ...form, part: e.target.value })}>{VOICE_PARTS.map((p) => <option key={p}>{p}</option>)}</select></div>
           <div className="field"><label className="label">Format</label><select className="input" value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}>{['MP3', 'Audio', 'PDF Score', 'PDF + MP3', 'MIDI', 'Image', 'Video'].map((p) => <option key={p}>{p}</option>)}</select></div>
         </div>
         <div className="field">

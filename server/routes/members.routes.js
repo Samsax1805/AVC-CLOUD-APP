@@ -1,13 +1,14 @@
 const express = require('express');
 const c = require('../controllers/members.controller');
 const auth = require('../middleware/auth');
+const safe = require('../middleware/safe');
 const r = express.Router();
 
-r.post('/', auth, c.add);
-r.post('/:id/approve', auth, c.approve);
-r.post('/:id/section', auth, c.section);
-r.post('/:id/reject', auth, c.reject);
-r.post('/:id/deactivate', auth, c.deactivate);
-r.post('/:id/reactivate', auth, c.reactivate);
+r.post('/', auth, safe(c.add));
+r.post('/:id/approve', auth, safe(c.approve));
+r.post('/:id/section', auth, safe(c.section));
+r.post('/:id/reject', auth, safe(c.reject));
+r.post('/:id/deactivate', auth, safe(c.deactivate));
+r.post('/:id/reactivate', auth, safe(c.reactivate));
 
 module.exports = r;

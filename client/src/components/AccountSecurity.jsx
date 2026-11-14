@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
+import Icon from './ui/Icon';
 import { Tag, METHOD, when } from '../pages/Security';
 
-const card = { background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', marginTop: '24px' };
-const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px', boxSizing: 'border-box' };
-const labelStyle = { display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '14px', color: '#333' };
-const btn = (primary) => ({ padding: '10px 20px', background: primary ? '#1a2c60' : '#f0f0f0', border: primary ? 'none' : '1px solid #ddd', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '14px', color: primary ? '#fff' : '#333' });
+const Status = ({ on, yes, no }) => (
+  <span className="act-tag" style={on ? { background: '#0596691a', color: '#059669' } : { background: '#64748b1a', color: '#64748b' }}>{on ? yes : no}</span>
+);
 
-// Settings → Security: your recent sign-ins, change password, sign out other devices
+// Settings → Security: how you sign in, your password, your devices and your recent sign-ins
 export default function AccountSecurity({ toast }) {
   const [info, setInfo] = useState(null);
   const [pw, setPw] = useState({ current: '', next: '', again: '' });
@@ -17,8 +17,10 @@ export default function AccountSecurity({ toast }) {
 
   // The server ends every other session and gives this device a fresh login
   const keep = (access) => { if (access) localStorage.setItem('avc_token', access); };
+  const field = (k) => ({ value: pw[k], onChange: ({ target: { value } }) => setPw((p) => ({ ...p, [k]: value })) });
 
-  const changePassword = async () => {
+  const changePassword = async (e) => {
+    e.preventDefault();
     if (pw.next.length < 6) return toast?.('The new password must be at least 6 characters', 'err');
     if (pw.next !== pw.again) return toast?.('The two new passwords do not match', 'err');
     setBusy(true);
@@ -28,7 +30,7 @@ export default function AccountSecurity({ toast }) {
       setPw({ current: '', next: '', again: '' });
       toast?.('Password saved. Your other devices have been signed out.');
       load();
-    } catch (e) { toast?.(e.response?.data?.msg || 'Could not change the password', 'err'); } finally { setBusy(false); }
+    } catch (err) { toast?.(err.response?.data?.msg || 'Could not change the password', 'err'); } finally { setBusy(false); }
   };
   const signOutOthers = async () => {
     setBusy(true);
@@ -36,44 +38,60 @@ export default function AccountSecurity({ toast }) {
       const { data } = await api.post('/security/me/signout-others');
       keep(data.access);
       toast?.('Signed out of all your other devices');
-    } catch (e) { toast?.(e.response?.data?.msg || 'That did not work — please try again', 'err'); } finally { setBusy(false); }
+    } catch (err) { toast?.(err.response?.data?.msg || 'That did not work — please try again', 'err'); } finally { setBusy(false); }
   };
 
-  return (
-    <div id="account-security" style={card}>
-      <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#333' }}>Security</h3>
+  if (!info) return <div className="card"><p className="muted small" style={{ margin: 0 }}>Loading your security settings…</p></div>;
+  if (info.failed) return <div className="card"><p className="small" style={{ margin: 0 }}>Your security settings could not be loaded. <button className="btn btn-sm btn-soft" onClick={load}>Try again</button></p></div>;
 
-      <div style={{ marginBottom: '20px' }}>
-        <div style={labelStyle}>Your recent sign-ins</div>
-        {!info && <p style={{ color: '#888', fontSize: '13px', margin: 0 }}>Loading…</p>}
-        {info?.failed && <p style={{ color: '#888', fontSize: '13px', margin: 0 }}>Could not load your sign-ins.</p>}
-        {info?.signins && !info.signins.length && <p style={{ color: '#888', fontSize: '13px', margin: 0 }}>None recorded yet — they appear from your next sign-in.</p>}
-        {info?.signins?.map((e) => (
-          <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f0e9da', fontSize: '13px' }}>
-            <div><Tag type={e.type} /> <span style={{ color: '#555' }}>{[METHOD[e.method], e.device].filter(Boolean).join(' · ')}</span></div>
-            <span style={{ color: '#888', whiteSpace: 'nowrap' }}>{when(e.createdAt)}</span>
-          </div>
-        ))}
-        <p style={{ color: '#888', fontSize: '12px', margin: '8px 0 0' }}>See a sign-in that wasn't you? Change your password below.</p>
+  return (
+    <div className="stack" id="account-security">
+      <div className="card">
+        <div className="card-h"><h3>Sign-in methods</h3></div>
+        <div className="set-row">
+          <div><b className="small">Google</b><div className="muted tiny">Sign in with your Google account</div></div>
+          <Status on={info.google} yes="Connected" no="Not used" />
+        </div>
+        <div className="set-row">
+          <div><b className="small">Password</b><div className="muted tiny">Sign in with your email and a password</div></div>
+          <Status on={info.hasPassword} yes="Set" no="Not set" />
+        </div>
       </div>
 
-      {info && !info.failed && (
-        <div style={{ marginBottom: '20px' }}>
-          <div style={labelStyle}>{info.hasPassword ? 'Change password' : 'Set a password'}</div>
-          {!info.hasPassword && <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>You sign in with Google. A password lets you sign in with your email too.</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(200px, 100%), 1fr))', gap: '10px' }}>
-            {info.hasPassword && <input type="password" autoComplete="current-password" aria-label="Current password" placeholder="Current password" value={pw.current} onChange={({ target: { value } }) => setPw((p) => ({ ...p, current: value }))} style={inputStyle} />}
-            <input type="password" autoComplete="new-password" aria-label="New password" placeholder="New password" value={pw.next} onChange={({ target: { value } }) => setPw((p) => ({ ...p, next: value }))} style={inputStyle} />
-            <input type="password" autoComplete="new-password" aria-label="New password again" placeholder="New password again" value={pw.again} onChange={({ target: { value } }) => setPw((p) => ({ ...p, again: value }))} style={inputStyle} />
-          </div>
-          <button onClick={changePassword} disabled={busy} style={{ ...btn(true), marginTop: '10px' }}>{busy ? 'Saving…' : 'Save password'}</button>
+      <form className="card" onSubmit={changePassword}>
+        <div className="card-h"><h3>{info.hasPassword ? 'Change password' : 'Set a password'}</h3></div>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          {info.hasPassword ? 'Use at least 6 characters. Saving signs you out on your other devices.' : 'You sign in with Google. A password also lets you sign in with your email.'}
+        </p>
+        <div className="grid g3 set-grid">
+          {info.hasPassword && <div className="field"><label className="label" htmlFor="pw-cur">Current password</label><input id="pw-cur" className="input" type="password" autoComplete="current-password" {...field('current')} /></div>}
+          <div className="field"><label className="label" htmlFor="pw-new">New password</label><input id="pw-new" className="input" type="password" autoComplete="new-password" {...field('next')} /></div>
+          <div className="field"><label className="label" htmlFor="pw-again">Confirm new password</label><input id="pw-again" className="input" type="password" autoComplete="new-password" {...field('again')} /></div>
         </div>
-      )}
+        <div style={{ marginTop: 14 }}><button className="btn btn-pri" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></div>
+      </form>
 
-      <div>
-        <div style={labelStyle}>Other devices</div>
-        <p style={{ color: '#666', fontSize: '13px', marginTop: 0 }}>Signed in on a phone or computer you no longer use? This signs out everywhere except here.</p>
-        <button onClick={signOutOthers} disabled={busy} style={btn(false)}>Sign out of other devices</button>
+      <div className="card">
+        <div className="card-h"><h3>Devices</h3></div>
+        <div className="set-row">
+          <div><b className="small">Sign out of other devices</b><div className="muted tiny">Lost a phone, or signed in on someone else's computer? This keeps you signed in here only.</div></div>
+          <button className="btn btn-sm btn-soft" disabled={busy} onClick={signOutOthers}><Icon name="logout" size={13} /> Sign out others</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><h3>Recent sign-in activity</h3></div>
+        {info.signins.length ? (
+          <div className="feed">
+            {info.signins.map((e) => (
+              <div className="feed-row" key={e.id}>
+                <div className="feed-txt"><Tag type={e.type} /> <span className="small">{[METHOD[e.method], e.device].filter(Boolean).join(' · ')}</span>{e.ip && <div className="muted tiny">Network {e.ip}</div>}</div>
+                <span className="muted tiny">{when(e.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="muted small" style={{ margin: 0 }}>No sign-ins recorded yet — they appear from your next sign-in.</p>}
+        <p className="muted tiny" style={{ marginBottom: 0 }}>Don't recognise a sign-in? Change your password and sign out of other devices.</p>
       </div>
     </div>
   );

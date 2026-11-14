@@ -21,6 +21,8 @@ import AnnouncementsPage from '../pages/Announcements';
 import DocumentsPage from '../pages/Documents';
 import ProbationPage from '../pages/Probation';
 import SecurityPage from '../pages/Security';
+import PsalmistsPage from '../pages/Psalmists';
+import DutyChat from './DutyChat';
 
 export default function AppShell() {
   const data = useDataContext() || {};
@@ -31,6 +33,7 @@ export default function AppShell() {
   const [sideOpen, setSideOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [dark, setDark] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('profile');
 
   const me = data.me || null;
   const notifs = data.notifs || [];
@@ -46,7 +49,7 @@ export default function AppShell() {
     );
   }
 
-  const ctx = { ...data, me, setPage };
+  const ctx = { ...data, me, setPage, settingsTab };
   const nav = (typeof visibleNav === 'function' ? visibleNav(me) : NAV_DEFS) || [];
   const liveElections = elections.filter((e) => e.status === 'live');
   const unread = notifs.filter((n) => !(n.readBy || []).includes(me.id)).length;
@@ -65,6 +68,7 @@ export default function AppShell() {
       case 'dues': return <DuesPage ctx={ctx} />;
       case 'elections': return <ElectionsPage ctx={ctx} />;
       case 'audit': return <AuditPage ctx={ctx} />;
+      case 'psalmists': return <PsalmistsPage ctx={ctx} />;
       case 'security': return PERMS.viewSecurity(me) ? <SecurityPage ctx={ctx} /> : <Dashboard ctx={ctx} />;
       case 'members': return <MembersPage ctx={ctx} />;
       case 'profile': return <ProfilePage ctx={ctx} />;
@@ -88,7 +92,7 @@ export default function AppShell() {
             <div key={sec}>
               <div className="nav-sec">{sec}</div>
               {nav.filter((n) => n.sec === sec).map((n) => (
-                <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { setPage(n.id); setSideOpen(false); }}>
+                <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { setSettingsTab('profile'); setPage(n.id); setSideOpen(false); }}>
                   <Icon name={n.icon} size={16} />
                   <span>{n.id === 'debts' ? (PERMS.manageDebts(me) ? 'Debt Tracker' : 'My Debts') : n.label}</span>
                   {n.id === 'elections' && liveElections.length > 0 && <span className="nav-live">{liveElections.length}</span>}
@@ -101,8 +105,8 @@ export default function AppShell() {
           <button className={`nav-item ${page === 'security' ? 'active' : ''}`} onClick={() => {
             setSideOpen(false);
             if (PERMS.viewSecurity(me)) return setPage('security');
+            setSettingsTab('security');
             setPage('profile');
-            setTimeout(() => document.getElementById('account-security')?.scrollIntoView({ behavior: 'smooth' }), 250);
           }}><Icon name="lock" size={16} /><span>Security</span></button>
           <button className="nav-item"><Icon name="bell" size={16} /><span>Help Centre</span></button>
           <div className="dm-row">
@@ -160,6 +164,7 @@ export default function AppShell() {
         </main>
         <footer className="foot-bar">© 2026 St. Barnabas Amazing Voices Choir. All rights Reserved</footer>
       </div>
+      {!(me.roles || []).includes('alumni') && <DutyChat me={me} />}
     </div>
   );
 }

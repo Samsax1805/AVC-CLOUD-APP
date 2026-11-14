@@ -4,7 +4,7 @@ const R = require('../models/records');
 const elections = require('./elections.controller');
 const security = require('../services/security.service');
 
-const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', custodian: 'Custodian', electoral: 'Electoral Committee', alumni: 'Old Member' };
+const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', choirmaster: 'Choir Master', asstchoirmaster: 'Assistant Choir Master', custodian: 'Custodian', electoral: 'Electoral Committee', alumni: 'Old Member' };
 
 const KEYS = {
   songs: R.Song, sessions: R.Session, debts: R.Debt, dues: R.Due, elections: R.Election,
@@ -16,7 +16,7 @@ const KEYS = {
 // Executive roles that admins and the president may grant (README role table),
 // plus 'alumni' (Old Member: view-only, replaces any executive role).
 // Only an admin may grant or remove 'admin', and the last admin can't be removed.
-const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'custodian', 'electoral', 'alumni'];
+const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
 const MANAGERS = ['admin', 'president'];
 
 const nextRoles = (actorRoles, current, requested, adminCount) => {
@@ -69,7 +69,7 @@ exports.getAll = async (req, res) => {
 // - a collection missing from the request is left alone (never wiped)
 // - ordinary members and Old Members can add and update records but never delete them
 // - officers may delete only a few records per save; anything bigger is refused before writing
-const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'pro', 'custodian', 'electoral'];
+const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral'];
 const MAX_DELETES_PER_SAVE = 3;
 
 // Polls: the Electoral Committee (and admins) create, edit and delete them; only the President

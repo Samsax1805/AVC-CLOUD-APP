@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import COUNTRIES from '../data/countries';
 import PhoneField, { parsePhone, joinPhone } from '../components/PhoneField';
 import AccountSecurity from '../components/AccountSecurity';
+import Avatar from '../components/ui/Avatar';
+import Icon from '../components/ui/Icon';
+import RoleChip from '../components/ui/RoleChip';
+import { rolesOf } from '../hooks/usePermissions';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 
@@ -25,6 +29,9 @@ export default function ProfilePage({ ctx }) {
   });
   
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState(ctx?.settingsTab || 'profile');
+  // The sidebar's Security button opens the Security tab even when Settings is already open
+  useEffect(() => { if (ctx?.settingsTab) setTab(ctx.settingsTab); }, [ctx?.settingsTab]);
   const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   const save = async () => {
@@ -62,81 +69,34 @@ export default function ProfilePage({ ctx }) {
     }
   };
 
-  const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px', boxSizing: 'border-box' };
-  const labelStyle = { display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '14px', color: '#333' };
-
+  // Uses the site's own form styles (.field, .label, .input, chips, buttons), so it matches every other page and dark mode
   const formBody = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))', gap: '16px' }}>
-        
-        <div>
-          <label style={labelStyle}>Full name</label>
-          <input value={form.name} onChange={upd('name')} placeholder="Your full name" style={inputStyle} />
-        </div>
-        
-        <div>
-          <label style={labelStyle}>Email address</label>
-          <input value={form.email} disabled style={{ ...inputStyle, background: '#f5f5f5', color: '#666' }} />
-        </div>
-        
-        <div>
-          <label style={labelStyle}>Date of birth</label>
-          <input type="date" value={form.dob} onChange={upd('dob')} style={inputStyle} />
-        </div>
-        
-        <div>
-          <label style={labelStyle}>Country</label>
-          <input list="country-list" value={form.country} onChange={upd('country')} placeholder="e.g. Nigeria" style={inputStyle} />
+    <div className="profile-form">
+      <div className="grid g2 profile-grid">
+        <div className="field"><label className="label" htmlFor="pf-name">Full name</label><input id="pf-name" className="input" value={form.name} onChange={upd('name')} placeholder="Your full name" /></div>
+        <div className="field"><label className="label" htmlFor="pf-email">Email address</label><input id="pf-email" className="input" value={form.email} disabled /></div>
+        <div className="field"><label className="label" htmlFor="pf-dob">Date of birth</label><input id="pf-dob" className="input" type="date" value={form.dob} onChange={upd('dob')} /></div>
+        <div className="field">
+          <label className="label" htmlFor="pf-country">Country</label>
+          <input id="pf-country" className="input" list="country-list" value={form.country} onChange={upd('country')} placeholder="e.g. Nigeria" />
           <datalist id="country-list">{COUNTRIES.map((c) => <option key={c.iso} value={c.name} />)}</datalist>
         </div>
-        
-        {/* [NEW] Phone Number with Country Code & Validation */}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>Telephone number</label>
-          <PhoneField
-            iso={form.phoneIso}
-            num={form.phoneNumber}
-            onIso={(phoneIso) => setForm({ ...form, phoneIso })}
-            onNum={(phoneNumber) => setForm({ ...form, phoneNumber })}
-            style={inputStyle}
-          />
-          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#888' }}>
-            Numbers only. Letters and symbols are automatically removed.
-          </p>
-        </div>
-
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={labelStyle}>The part you sing</label>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
-            {PARTS.map((p) => (
-              <button 
-                key={p} 
-                type="button" 
-                onClick={() => setForm({ ...form, part: p })}
-                style={{
-                  padding: '10px 20px', borderRadius: '20px', border: '1px solid #ccc', cursor: 'pointer', fontSize: '14px',
-                  background: form.part === p ? '#1a2c60' : '#fff',
-                  color: form.part === p ? '#fff' : '#333',
-                  fontWeight: form.part === p ? 600 : 400,
-                  transition: 'all 0.2s'
-                }}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
+      </div>
+      <div className="field">
+        <label className="label" htmlFor="pf-phone">Telephone number</label>
+        <PhoneField id="pf-phone" className="input" iso={form.phoneIso} num={form.phoneNumber}
+          onIso={(phoneIso) => setForm((f) => ({ ...f, phoneIso }))} onNum={(phoneNumber) => setForm((f) => ({ ...f, phoneNumber }))} />
+        <p className="muted tiny" style={{ margin: '6px 0 0' }}>Numbers only — letters and symbols are removed automatically.</p>
+      </div>
+      <div className="field">
+        <label className="label">The part you sing</label>
+        <div className="chip-row">
+          {PARTS.map((p) => <button key={p} type="button" className={`chip ${form.part === p ? 'on' : ''}`} aria-pressed={form.part === p} onClick={() => setForm((f) => ({ ...f, part: p }))}>{p}</button>)}
         </div>
       </div>
-
-      <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
-        <button onClick={save} disabled={saving} style={{ padding: '12px 28px', background: '#e9a63a', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '15px', color: '#fff' }}>
-          {saving ? 'Saving…' : 'Save details'}
-        </button>
-        {!setup && (
-          <button onClick={logout} style={{ padding: '12px 28px', background: '#f0f0f0', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', color: '#333' }}>
-            Sign out
-          </button>
-        )}
+      <div className="profile-actions">
+        <button className="btn btn-pri" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save details'}</button>
+        {!setup && <button className="btn btn-ghost" onClick={logout}><Icon name="logout" size={14} /> Sign out</button>}
       </div>
     </div>
   );
@@ -158,26 +118,27 @@ export default function ProfilePage({ ctx }) {
     );
   }
 
+  const tabs = [['profile', 'Profile'], ['security', 'Security']];
   return (
-    <div style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
-      <h2 style={{ marginBottom: '24px', color: '#1a2c60' }}>My Profile</h2>
-      
-      <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#1a2c60', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', fontWeight: 700, flexShrink: 0 }}>
-          {currentUser.name?.charAt(0) || 'U'}
-        </div>
-        <div>
-          <h3 style={{ margin: 0, color: '#333' }}>{currentUser.name}</h3>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>{currentUser.email}</p>
-        </div>
+    <div className="stack settings">
+      <div className="page-head"><div><h2>Settings</h2><p className="muted small">Your profile and how you sign in.</p></div></div>
+      <div className="tab-row" role="tablist">
+        {tabs.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>)}
       </div>
-
-      <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>Personal details</h3>
-        {formBody}
-      </div>
-
-      <AccountSecurity toast={toast} />
+      {tab === 'profile' ? (<>
+        <div className="card settings-id">
+          <Avatar user={currentUser} size={60} />
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0 }}>{currentUser.name}</h3>
+            <p className="muted small" style={{ margin: '2px 0 8px', overflowWrap: 'anywhere' }}>{currentUser.email}</p>
+            <div className="chip-row">{rolesOf({ roles: currentUser.roles || [] }).map((r) => <RoleChip key={r} r={r} />)}</div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-h"><h3>Personal details</h3></div>
+          {formBody}
+        </div>
+      </>) : <AccountSecurity toast={toast} />}
     </div>
   );
 }

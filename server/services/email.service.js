@@ -185,3 +185,67 @@ exports.sendBirthdayWish = async (member, firstName) => {
     return false;
   }
 };
+
+// Tells a member they've been given a duty. Never throws.
+exports.sendDutyEmail = async (member, fromName, duty, dueLabel) => {
+  const site = (process.env.CLIENT_URL || '').replace(/\/dashboard$/, '');
+  try {
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL,
+      to: member.email,
+      subject: `New duty from ${fromName}: ${duty.title}`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;background:#faf7f0;padding:32px;border-radius:12px;border:1px solid #e3d8c2">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="display:inline-block;padding:8px 16px;background:#1a2c60;color:#e9a63a;border-radius:6px;font-weight:700;letter-spacing:1px">AVC CLOUD</div>
+          </div>
+          <h2 style="color:#1a2c60;margin:0 0 8px">You have a new duty</h2>
+          <p style="color:#555">${esc(fromName)} has asked you to take this on:</p>
+          <div style="background:#fff;border:1px solid #e3d8c2;border-radius:8px;padding:16px;margin:16px 0;font-size:15px;color:#333">
+            <b>#${duty.num} ${esc(duty.title)}</b>${dueLabel ? `<div style="color:#888;margin-top:4px">${esc(dueLabel)}</div>` : ''}
+          </div>
+          <p style="color:#555">Open the duty chat on AVC Cloud to accept it, say you can't, or mark it done.</p>
+          ${site ? `<p style="text-align:center"><a href="${esc(site)}" style="display:inline-block;background:#1a2c60;color:#e9a63a;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:700">Open AVC Cloud</a></p>` : ''}
+          <div style="text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #e3d8c2;color:#999;font-size:12px">
+            © 2026 St. Barnabas Amazing Voices Choir
+          </div>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error('❌ Duty email failed:', err.message);
+  }
+};
+
+// Two-week and one-week reminder to a responsorial psalmist. Never throws.
+exports.sendPsalmistReminder = async (member, firstName, day, dayLabel, when) => {
+  const site = (process.env.CLIENT_URL || '').replace(/\/dashboard$/, '');
+  try {
+    await transporter.sendMail({
+      from: process.env.FROM_EMAIL,
+      to: member.email,
+      subject: `Psalmist reminder: ${dayLabel}`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;background:#faf7f0;padding:32px;border-radius:12px;border:1px solid #e3d8c2">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="display:inline-block;padding:8px 16px;background:#1a2c60;color:#e9a63a;border-radius:6px;font-weight:700;letter-spacing:1px">AVC CLOUD</div>
+          </div>
+          <h2 style="color:#1a2c60;margin:0 0 8px">Hello ${esc(firstName)}, you're the psalmist ${esc(when)} 🎤</h2>
+          <div style="background:#fff;border:1px solid #e3d8c2;border-left:4px solid #9d174d;border-radius:8px;padding:16px;margin:16px 0;color:#333">
+            <div style="font-size:15px;font-weight:700">${esc(dayLabel)}</div>
+            <div style="margin-top:4px">${esc(day.title)}</div>
+            <div style="color:#888;font-size:13px;margin-top:4px">${esc([day.season, day.cycle].filter(Boolean).join(' · '))}</div>
+            ${day.note ? `<div style="margin-top:8px;font-size:13px"><b>Note:</b> ${esc(day.note)}</div>` : ''}
+          </div>
+          <p style="color:#555">Please prepare the responsorial psalm for this celebration. If you can't make it, let the Choir Master know as soon as possible.</p>
+          ${site ? `<p style="text-align:center"><a href="${esc(site)}" style="display:inline-block;background:#1a2c60;color:#e9a63a;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:700">See the Psalmist List</a></p>` : ''}
+          <div style="text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #e3d8c2;color:#999;font-size:12px">
+            © 2026 St. Barnabas Amazing Voices Choir
+          </div>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error('❌ Psalmist reminder email failed:', err.message);
+  }
+};

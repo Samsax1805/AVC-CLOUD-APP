@@ -4,12 +4,14 @@ export const ROLES = {
   secretary: { label: 'Secretary', color: '#0369a1', bg: '#e0f2fe', desc: 'Minutes, receipts, documents & announcements.' },
   provost: { label: 'Provost', color: '#047857', bg: '#d1fae5', desc: 'Attendance, absence/lateness debts, probation.' },
   pro: { label: 'PRO', color: '#a16207', bg: '#fef9c3', desc: 'Public Relations Officer. Adds new members and sets the part each member sings.' },
+  choirmaster: { label: 'Choir Master', color: '#9d174d', bg: '#fce7f3', desc: 'Leads the music. Plans the responsorial psalmist roster and publishes it.' },
+  asstchoirmaster: { label: 'Assistant Choir Master', color: '#be185d', bg: '#fdf2f8', desc: 'Supports the Choir Master. Plans and publishes the psalmist roster.' },
   custodian: { label: 'Custodian', color: '#be123c', bg: '#ffe4e6', desc: 'Songs, audio & music files.' },
   electoral: { label: 'Electoral Committee', color: '#4338ca', bg: '#e0e7ff', desc: 'Nominations, polls and live election results.' },
   member: { label: 'Member', color: '#475569', bg: '#f1f5f9', desc: 'Chorister. Votes when elections are live.' },
   alumni: { label: 'Old Member', color: '#7c6f57', bg: '#efe9dd', desc: 'Former chorister. View-only: notifications and updates, no attendance, dues or elections.' },
 };
-export const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'custodian', 'electoral', 'alumni'];
+export const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
 export const rolesOf = (u) => (u.roles.length ? u.roles : ['member']);
 export const isAlumni = (u) => !!u && (u.roles || []).includes('alumni');
 // Old Members hold no privileges, even if an old role was left behind
@@ -27,6 +29,7 @@ export const PERMS = {
   manageElections: (u) => hasAny(u, ['admin', 'electoral']),
   viewAudit: (u) => hasAny(u, ['admin', 'president']),
   viewSecurity: (u) => hasAny(u, ['admin', 'president']),
+  managePsalmists: (u) => hasAny(u, ['admin', 'president', 'choirmaster', 'asstchoirmaster']),
   manageMembers: (u) => hasAny(u, ['admin', 'president']),
   approveMembers: (u) => hasAny(u, ['admin', 'president', 'provost']),
   addMembers: (u) => hasAny(u, ['admin', 'president', 'provost', 'pro']),
@@ -54,6 +57,7 @@ export const NAV_DEFS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', sec: 'Main' },
   { id: 'music', label: 'Music & Files', icon: 'music', sec: 'Main' },
   { id: 'voice', label: 'Voice Notes', icon: 'mic', sec: 'Main' },
+  { id: 'psalmists', label: 'Psalmists', icon: 'calendar', sec: 'Main' },
   { id: 'announcements', label: 'Announcements', icon: 'bell', sec: 'Library' },
   { id: 'documents', label: 'Documents', icon: 'file', sec: 'Library' },
   { id: 'minutes', label: 'Minutes', icon: 'file', sec: 'Records' },

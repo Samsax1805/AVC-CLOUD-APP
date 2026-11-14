@@ -35,6 +35,16 @@ export const PIE_COLORS = ['#7c3aed', '#0284c7', '#e9a63a', '#059669', '#e11d48'
 
 export const VOICE_PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 
+// A song can be for all parts or any mix of them; stored as "All parts" or e.g. "Soprano, Alto".
+// Older songs saved as "SATB Full" (or with no part) count as all parts.
+export const ALL_PARTS = 'All parts';
+export const songParts = (s) => {
+  const p = String(s?.part || '');
+  const list = VOICE_PARTS.filter((x) => p.includes(x));
+  return !p || /^(all parts|satb)/i.test(p) || !list.length ? [...VOICE_PARTS] : list;
+};
+export const partsLabel = (parts) => (parts.length === VOICE_PARTS.length ? ALL_PARTS : VOICE_PARTS.filter((x) => parts.includes(x)).join(', '));
+
 // Song categories (a song can have several): parts of the Mass and seasons, then themes
 export const SONG_CATEGORIES = [
   { group: 'Mass, seasons & occasions', items: [

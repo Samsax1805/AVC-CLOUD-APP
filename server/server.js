@@ -17,6 +17,9 @@ app.use('/api/members', require('./routes/members.routes'));
 app.use('/api/files', require('./routes/files.routes'));
 app.use('/api/elections', require('./routes/elections.routes'));
 app.use('/api/security', require('./routes/security.routes'));
+app.use('/api/assistant', require('./routes/assistant.routes'));
+app.use('/api/psalmists', require('./routes/psalmists.routes'));
+app.use('/api/messages', require('./routes/messages.routes'));
 
 app.use((req, res) => {
   res.status(404).json({ msg: `Route not found: ${req.method} ${req.path}` });
@@ -27,6 +30,7 @@ connectDB()
   .then(() => app.listen(PORT, () => {
     console.log(`🚀 API running on http://localhost:${PORT}`);
     require('./services/birthday.service').start();
+    require('./services/psalmist.service').start();
   }))
   .catch((e) => {
     console.error('❌ DB failed:', e.message);
