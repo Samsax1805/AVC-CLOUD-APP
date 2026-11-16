@@ -315,6 +315,9 @@ button.chip:hover{background:var(--navy2)}
 .el-add-office{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .el-add-office .input{flex:1 1 220px;min-width:0;max-width:360px}
 .icon-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#a1937a;background:none;border:1px solid transparent;cursor:pointer}
+.el-new-office{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1.5px dashed var(--gold);border-radius:10px;background:#fdf8ec}
+.el-new-office .input{flex:1 1 220px;min-width:0}
+.el-rename{flex:1;min-width:0;font-weight:700}
 .icon-x:hover{border-color:#fca5a5;color:#dc2626;background:#fef2f2}
 .chip.sm.warn{background:#fef3c7;color:#92400e}
 .chip.sm.ok{background:#d1fae5;color:#065f46}

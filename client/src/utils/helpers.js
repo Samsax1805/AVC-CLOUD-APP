@@ -63,19 +63,16 @@ export const SONG_CATEGORIES = [
 // Songs uploaded before categories existed have a single free-text tag instead
 export const songCategories = (s) => (s.categories?.length ? s.categories : s.tag ? [s.tag] : []);
 
+// The choir's offices up for election; the Electoral Committee can add a new office by name
 export const POSTS = [
   'President',
-  'Vice President',
-  'Secretary General',
-  'Assistant Secretary',
-  'Financial Secretary',
-  'Treasurer',
+  'Secretary',
   'Provost',
-  'Welfare Officer 1',
-  'Welfare Officer 2',
-  'Librarian',
-  'Song Leader',
-  'Publicity Secretary',
+  'Custodian 1',
+  'Custodian 2',
+  'P.R.O. (Public Relations Officer)',
+  'Choir Master',
+  'Assistant Choir Master',
 ];
 
 // [NEW] Used by App.jsx to force Google first-timers through profile setup

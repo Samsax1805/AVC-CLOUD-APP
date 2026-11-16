@@ -270,7 +270,7 @@ function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandida
       <div className="card-h"><h3>{c ? 'Committee controls' : 'Oversight'}</h3><span className="chip sm">{c ? 'Electoral Committee' : 'President'}</span></div>
       <p className="muted small el-hint">{HINT[stage](cycle)} <button className="link-btn" onClick={openGuide}>Guide</button></p>
 
-      {stage === 'setup' && (c ? <OfficesEditor offices={offices} pool={pool} save={saveOffices} /> : <OfficeSummary offices={offices} />)}
+      {stage === 'setup' && (c ? <OfficesEditor offices={offices} pool={pool} save={saveOffices} canRename /> : <OfficeSummary offices={offices} />)}
       {stage === 'nominations' && (<>
         <NominationTally offices={offices} nominators={cycle.nominators} voters={voters} />
         {c && <button className="btn btn-sm btn-ghost el-self-start" onClick={() => setEditing((v) => !v)}><Icon name="edit" size={12} /> {editing ? 'Done editing' : 'Edit offices & eligibility'}</button>}
@@ -316,19 +316,50 @@ function StartNew({ busy, start, mock }) {
 }
 
 /* Offices and who is eligible: everything is picked from lists, nothing typed */
-function OfficesEditor({ offices, pool, save }) {
+const NEW_OFFICE = '__new__';
+const cleanName = (v) => v.replace(/\s+/g, ' ').trim().slice(0, 60);
+function OfficesEditor({ offices, pool, save, canRename }) {
   const names = offices.map((o) => o.name);
+  const taken = (n) => names.some((x) => x.toLowerCase() === n.toLowerCase());
   const free = POSTS.filter((p) => !names.includes(p));
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [renaming, setRenaming] = useState(null); // { from, to }
+  const renamed = useRef(null); // Enter and leaving the box both finish a rename: only the first one counts
   const set = (name, eligible) => save(offices.map((o) => (o.name === name ? { ...o, eligible } : o)));
+  const addNew = () => {
+    const name = cleanName(draft);
+    if (!name || taken(name)) return;
+    save([...offices, { name, eligible: [] }], `${name} added`);
+    setDraft(''); setAdding(false);
+  };
+  const rename = () => {
+    if (!renaming || renamed.current === renaming) return;
+    renamed.current = renaming;
+    const to = cleanName(renaming.to || '');
+    if (!to || (to.toLowerCase() !== renaming.from.toLowerCase() && taken(to))) return;
+    if (to !== renaming.from) save(offices.map((o) => (o.name === renaming.from ? { ...o, name: to } : o)), `Renamed to ${to}`);
+    setRenaming(null);
+  };
   return (
     <div className="stack sm-gap">
       <div className="el-add-office">
-        <select className="input" value="" disabled={!free.length} onChange={(e) => e.target.value && save([...offices, { name: e.target.value, eligible: [] }], `${e.target.value} added`)} aria-label="Add an office">
-          <option value="">{free.length ? '+ Add an office…' : 'Every office is added'}</option>
+        <select className="input" value="" onChange={(e) => { const v = e.target.value; if (v === NEW_OFFICE) setAdding(true); else if (v) save([...offices, { name: v, eligible: [] }], `${v} added`); }} aria-label="Add an office">
+          <option value="">+ Add an office…</option>
           {free.map((p) => <option key={p}>{p}</option>)}
+          <option value={NEW_OFFICE}>＋ New office (type its name)…</option>
         </select>
         {free.length > 0 && <button className="btn btn-sm btn-soft" onClick={() => save([...offices, ...free.map((name) => ({ name, eligible: [] }))], 'All offices added')}>Add all offices</button>}
       </div>
+      {adding && (
+        <div className="el-new-office">
+          <input className="input sm" autoFocus value={draft} maxLength={60} placeholder="Name of the new office, e.g. Welfare Officer" aria-label="Name of the new office"
+            onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addNew(); if (e.key === 'Escape') setAdding(false); }} />
+          <button className="btn btn-sm btn-pri" disabled={!cleanName(draft) || taken(cleanName(draft))} onClick={addNew}>Add office</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { setAdding(false); setDraft(''); }}>Cancel</button>
+          {cleanName(draft) && taken(cleanName(draft)) && <span className="muted tiny">That office is already on the list.</span>}
+        </div>
+      )}
       {!offices.length && <p className="muted small">No offices yet — add the offices up for election.</p>}
       <div className="grid g2">
         {offices.map((o) => {
@@ -337,7 +368,12 @@ function OfficesEditor({ offices, pool, save }) {
           return (
             <div className="el-office" key={o.name}>
               <div className="nom-h">
-                <h4>{o.name}</h4>
+                {renaming?.from === o.name ? (
+                  <input className="input sm el-rename" autoFocus value={renaming.to} maxLength={60} aria-label={`New name for ${o.name}`}
+                    onChange={(e) => setRenaming({ ...renaming, to: e.target.value })} onBlur={rename}
+                    onKeyDown={(e) => { if (e.key === 'Enter') rename(); if (e.key === 'Escape') { renamed.current = renaming; setRenaming(null); } }} />
+                ) : <h4>{o.name}</h4>}
+                {canRename && renaming?.from !== o.name && <button className="icon-x" title={`Rename ${o.name}`} aria-label={`Rename ${o.name}`} onClick={() => { renamed.current = null; setRenaming({ from: o.name, to: o.name }); }}><Icon name="edit" size={12} /></button>}
                 <span className={`chip sm ${o.eligible.length < 2 ? 'warn' : ''}`}>{o.eligible.length} eligible</span>
                 <button className="icon-x" title={`Remove ${o.name}`} aria-label={`Remove ${o.name}`} onClick={() => save(offices.filter((x) => x.name !== o.name), `${o.name} removed`)}><Icon name="x" size={13} /></button>
               </div>
@@ -362,7 +398,7 @@ function OfficesEditor({ offices, pool, save }) {
           );
         })}
       </div>
-      <p className="muted tiny">Members on the Electoral Committee and Old Members can't be made eligible. Each office needs at least 2 eligible members.</p>
+      <p className="muted tiny">Missing an office? Choose "New office" in the list above to add it by name{canRename ? ', or use the pencil to rename one' : ''}. Members on the Electoral Committee and Old Members can't be made eligible. Each office needs at least 2 eligible members.</p>
     </div>
   );
 }
@@ -608,7 +644,7 @@ function CommitteeTab({ committee, members, canAppoint, appoint, remove, cycle }
 function Guide() {
   const steps = [
     ['Practise first', 'New to this? Press "Run a practice election". It works exactly like a real one, is marked Practice everywhere, and is deleted when you end it.'],
-    ['1 · Offices & eligibility', 'Add the offices up for election from the dropdown. For each, add the eligible members (or "All members"). Each office needs at least 2. Members see nothing yet.'],
+    ['1 · Offices & eligibility', 'Add the offices up for election from the dropdown (President, Secretary, Provost, Custodian 1 and 2, P.R.O., Choir Master, Assistant Choir Master). If the choir creates a new office, choose "New office" and type its name; the pencil renames one. For each office, add the eligible members (or "All members"). Each office needs at least 2. Members see nothing yet.'],
     ['2 · Nominations (optional)', 'Publish for nominations: members pick one eligible person per office. You see the counts and who nominated whom, live. Or press "Skip nominations" to choose the candidates yourselves.'],
     ['3 · Candidates', 'Close nominations. Everyone nominated is ticked for you — untick or tick any eligible member. Each office needs at least 2 candidates. Then publish the candidates.'],
     ['4 · Go live', 'When the choir is ready, the committee, the President or an admin presses Go live. Members are notified and vote once per office; ballots are secret.'],

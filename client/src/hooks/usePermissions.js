@@ -54,7 +54,7 @@ export const ACT_META = {
   MEMBER_DEACTIVATED: { l: 'Member deactivated', c: '#9f1239' }, MEMBER_REACTIVATED: { l: 'Member reactivated', c: '#047857' },
   NOM_SUGGEST: { l: 'Nomination suggested', c: '#6366f1' },
 };
-export const POSTS = ['President', 'Vice President', 'Secretary', 'Assistant Secretary', 'Provost', 'Assistant Provost', 'Custodian', 'Assistant Custodian', 'Financial Secretary', 'Treasurer', 'Welfare Officer', 'Public Relations Officer'];
+export { POSTS } from '../utils/helpers';
 export const NAV_DEFS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', sec: 'Main' },
   { id: 'music', label: 'Music & Files', icon: 'music', sec: 'Main' },
