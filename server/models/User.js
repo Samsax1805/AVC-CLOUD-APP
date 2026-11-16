@@ -18,6 +18,9 @@ const UserSchema = new mongoose.Schema({
   lastFailedAt: Date,
   lockedUntil: Date,
   lastLoginAt: Date,
+  // When the account was last used and which version of the website it was on (staying signed in counts too)
+  lastSeenAt: Date,
+  lastSeenBuild: String,
   knownDevices: [String],
 }, { timestamps: true });
 module.exports = mongoose.model('User', UserSchema);

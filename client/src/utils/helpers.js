@@ -67,10 +67,13 @@ export const songCategories = (s) => (s.categories?.length ? s.categories : s.ta
 const nameKey = (n) => String(n || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).sort().join(' ');
 export const lookalikes = (users, u) => users.filter((x) => x.id !== u.id && (x.status || 'active') === 'active' && nameKey(x.name) && nameKey(x.name) === nameKey(u.name));
 // "today", "3 days ago", "never" — only when the server shared it (officers who manage members)
+// Uses the later of the last sign-in and the last time the account was used while staying signed in
+export const lastUsed = (u) => [u?.lastLoginAt, u?.lastSeenAt].filter(Boolean).sort().pop() || null;
 export const lastSignIn = (u) => {
   if (!('lastLoginAt' in (u || {}))) return null;
-  if (!u.lastLoginAt) return 'never';
-  const days = Math.floor((Date.now() - new Date(u.lastLoginAt)) / 864e5);
+  const at = lastUsed(u);
+  if (!at) return 'never';
+  const days = Math.floor((Date.now() - new Date(at)) / 864e5);
   return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
 };
 

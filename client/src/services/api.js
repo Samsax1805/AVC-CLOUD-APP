@@ -1,8 +1,11 @@
 import axios from 'axios';
 const api = axios.create({ baseURL: '/api' });
+// Which version of the website this is (the built file's name), so officers can see who is on an old copy
+const BUILD = (typeof document !== 'undefined' && (document.querySelector('script[src*="/assets/index-"]')?.getAttribute('src') || '').match(/index-([\w-]+)\.js/)?.[1]) || 'dev';
 api.interceptors.request.use((c) => {
   const t = localStorage.getItem('avc_token');
   if (t) c.headers['x-auth-token'] = t;
+  c.headers['x-app-build'] = BUILD;
   return c;
 });
 

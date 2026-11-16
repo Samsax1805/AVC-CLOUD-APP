@@ -16,7 +16,7 @@ module.exports = async (req, res, next) => {
   }
   let user;
   // A database problem is not a login problem: nobody gets logged out because of it
-  try { user = await User.findById(req.user.id, { status: 1, roles: 1, tokenVersion: 1 }).lean(); }
+  try { user = await User.findById(req.user.id, { status: 1, roles: 1, tokenVersion: 1, lastSeenAt: 1, lastSeenBuild: 1 }).lean(); }
   catch (e) {
     console.error('Auth lookup failed:', e.message);
     return res.status(503).json({ msg: 'Service temporarily unavailable — please try again' });
@@ -24,6 +24,11 @@ module.exports = async (req, res, next) => {
   if (!user || user.status !== 'active') return refuse(res, 'ACCOUNT_INACTIVE', 'Account is not active');
   if ((req.user.tv || 0) !== (user.tokenVersion || 0)) return refuse(res, 'SESSION_REVOKED', 'You were signed out of this device — please log in again');
   req.user.roles = user.roles || ['member'];
+  // Note when the account was last used and on which version of the website (at most every few minutes)
+  const build = String(req.headers['x-app-build'] || 'before 16 Nov update').slice(0, 60);
+  if (!user.lastSeenAt || Date.now() - new Date(user.lastSeenAt) > 5 * 60000 || user.lastSeenBuild !== build) {
+    User.updateOne({ _id: user._id }, { $set: { lastSeenAt: new Date(), lastSeenBuild: build } }).catch(() => {});
+  }
   if (req.user.exp - Date.now() / 1000 < RENEW_WITHIN_SECONDS) res.set('x-renewed-token', sign(user));
   next();
 };

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { TODAY, uid, fmtDate, POSTS, lookalikes, lastSignIn } from '../utils/helpers';
+import { TODAY, uid, fmtDate, POSTS, lookalikes, lastSignIn, lastUsed } from '../utils/helpers';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
 import Modal from '../components/ui/Modal';
@@ -621,17 +621,17 @@ function CommitteeTab({ committee, members, users = [], canAppoint, appoint, rem
         {committee.map((u) => {
           const seen = lastSignIn(u);
           // Someone who signed up twice: the role must be on the account they actually sign in with
-          const twin = canAppoint ? lookalikes(users, u).filter((x) => !x.roles.includes('electoral') && !x.roles.includes('alumni') && x.lastLoginAt && (!u.lastLoginAt || x.lastLoginAt > u.lastLoginAt)).sort((a, b) => String(b.lastLoginAt || '').localeCompare(String(a.lastLoginAt || '')))[0] : null;
-          const stale = seen === 'never' || (u.lastLoginAt && Date.now() - new Date(u.lastLoginAt) > 3 * 864e5);
+          const twin = canAppoint ? lookalikes(users, u).filter((x) => !x.roles.includes('electoral') && !x.roles.includes('alumni') && lastUsed(x) && (!lastUsed(u) || lastUsed(x) > lastUsed(u))).sort((a, b) => String(lastUsed(b) || '').localeCompare(String(lastUsed(a) || '')))[0] : null;
+          const stale = seen === 'never' || (lastUsed(u) && Date.now() - new Date(lastUsed(u)) > 3 * 864e5);
           return (
             <div className={`el-member ${canAppoint && (stale || twin) ? 'warn' : ''}`} key={u.id}>
               <Avatar user={u} size={34} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <b>{u.name}</b>
-                <div className="muted tiny">{u.voice || 'Member'}{canAppoint && <> · {u.email}{seen && <> · {seen === 'never' ? <span className="warn-text">never signed in</span> : `signed in ${seen}`}</>}</>}</div>
+                <div className="muted tiny">{u.voice || 'Member'}{canAppoint && <> · {u.email}{seen && <> · {seen === 'never' ? <span className="warn-text">never used</span> : `active ${seen}`}</>}</>}</div>
                 {canAppoint && twin && (
                   <div className="dup-note">
-                    ⚠ {u.name} has another account, {twin.email}{lastSignIn(twin) ? ` (signed in ${lastSignIn(twin)})` : ''}. If that's the one they use, move the role there.
+                    ⚠ {u.name} has another account, {twin.email}{lastSignIn(twin) ? ` (active ${lastSignIn(twin)})` : ''}. If that's the one they use, move the role there.
                     <button className="btn btn-sm btn-pri" onClick={() => { appoint(twin); remove(u); }}>Move role to {twin.email}</button>
                   </div>
                 )}
@@ -639,12 +639,12 @@ function CommitteeTab({ committee, members, users = [], canAppoint, appoint, rem
                   // Accounts with the same first name, most recently used first — the admin decides if one is the same person
                   const first = u.name.trim().split(/\s+/)[0].toLowerCase();
                   const similar = users.filter((x) => x.id !== u.id && (x.status || 'active') === 'active' && !x.roles.includes('electoral') && !x.roles.includes('alumni') && x.name.trim().split(/\s+/)[0].toLowerCase() === first)
-                    .sort((a, b) => String(b.lastLoginAt || '').localeCompare(String(a.lastLoginAt || ''))).slice(0, 3);
+                    .sort((a, b) => String(lastUsed(b) || '').localeCompare(String(lastUsed(a) || ''))).slice(0, 3);
                   return (
                     <div className="dup-note">
-                      <span>⚠ This account {seen === 'never' ? 'has never been signed in to' : `was last signed in ${seen}`}. Ask {u.name.split(' ')[0]} which email they sign in with — the role must be on that account.</span>
+                      <span>⚠ This account {seen === 'never' ? 'has never been used' : `was last used ${seen}`}. Ask {u.name.split(' ')[0]} which email they sign in with — the role must be on that account.</span>
                       {similar.map((x) => (
-                        <span key={x.id} className="dup-alt">Similar name: <b>{x.name}</b> · {x.email}{lastSignIn(x) ? ` · signed in ${lastSignIn(x)}` : ''} <button className="btn btn-sm btn-soft" onClick={() => { appoint(x); remove(u); }}>Move role here</button></span>
+                        <span key={x.id} className="dup-alt">Similar name: <b>{x.name}</b> · {x.email}{lastSignIn(x) ? ` · active ${lastSignIn(x)}` : ''} <button className="btn btn-sm btn-soft" onClick={() => { appoint(x); remove(u); }}>Move role here</button></span>
                       ))}
                     </div>
                   );
@@ -660,7 +660,7 @@ function CommitteeTab({ committee, members, users = [], canAppoint, appoint, rem
         <div className="el-start-row el-appoint">
           <select className="input" value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Choose a member to appoint">
             <option value="">Choose a member to appoint…</option>
-            {options.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.email}{lastSignIn(m) === 'never' ? ' · never signed in' : ''}</option>)}
+            {options.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.email}{lastSignIn(m) === 'never' ? ' · never used' : ''}</option>)}
           </select>
           <button className="btn btn-pri" disabled={!pick} onClick={() => { const u = members.find((m) => m.id === pick); if (u) { appoint(u); setPick(''); } }}><Icon name="plus" size={14} /> Appoint</button>
         </div>

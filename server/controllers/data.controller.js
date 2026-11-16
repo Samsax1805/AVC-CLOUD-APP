@@ -59,7 +59,7 @@ exports.getAll = async (req, res) => {
     // Deactivated members stay in the list (status shown) so their history keeps its names
     // Officers who manage members also see when each account last signed in, to spot duplicate or unused accounts
     const seesSignIns = (req.user.roles || []).some((r) => ['admin', 'president', 'provost', 'pro'].includes(r)) && !(req.user.roles || []).includes('alumni');
-    out.users = all.filter((u) => u.status !== 'pending').map((u) => (seesSignIns ? { ...mapMember(u), lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt).toISOString() : null } : mapMember(u)));
+    out.users = all.filter((u) => u.status !== 'pending').map((u) => (seesSignIns ? { ...mapMember(u), lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt).toISOString() : null, lastSeenAt: u.lastSeenAt ? new Date(u.lastSeenAt).toISOString() : null } : mapMember(u)));
     out.pendingUsers = all.filter((u) => u.status === 'pending').map(mapMember);
     res.json(out);
   } catch (e) {
