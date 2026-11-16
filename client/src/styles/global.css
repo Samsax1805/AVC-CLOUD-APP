@@ -333,6 +333,12 @@ button.chip:hover{background:var(--navy2)}
 .shell.dark .el-qg{background:#1a2c55;border-color:#2c4070}
 .shell.dark .el-qg li.now{background:#22386b;color:#eee7d6}
 .shell.dark .el-qg li p{color:#cbd3ea}
+.el-admin{border-color:#fca5a5}
+.el-admin .card-h{margin-bottom:4px}
+.el-admin-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line)}
+.el-admin-row>div:first-child{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px}
+.el-admin-row b{font-size:13.5px;color:var(--navy)}
+.el-res-h{display:flex;align-items:center;gap:10px}
 .warn-text{color:#b45309;font-weight:700}
 .dup-note{margin-top:5px;padding:7px 10px;border-radius:8px;background:#fef3c7;color:#92400e;font-size:12px;line-height:1.45;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 .dup-note .btn{padding:5px 10px}

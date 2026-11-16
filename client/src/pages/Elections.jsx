@@ -78,8 +78,7 @@ export default function ElectionsPage({ ctx }) {
       const { data } = await fn();
       if (done) toast(done);
       edits.current += 1;
-      setState((s) => ({ ...s, cycle: data?.cycle ?? null }));
-      publishStatus(data?.cycle);
+      if (data && 'cycle' in data) { setState((s) => ({ ...s, cycle: data.cycle })); publishStatus(data.cycle); }
       load();
       return true;
     } catch (e) { toast(errMsg(e), 'err'); load(); return false; } finally { setBusy(false); }
@@ -148,8 +147,10 @@ export default function ElectionsPage({ ctx }) {
             )}
 
             {stage === 'published' && <ResultsPanel offices={cycle.offices} title={cycle.mock ? 'Practice results' : 'Final results'} />}
+            {perms.admin && <AdminTools cycle={cycle} logCount={state.logCount} busy={busy} ask={setConfirm} act={act} log={log} />}
           </>
         ))}
+      {tab === 'current' && !cycle && perms.admin && <AdminTools cycle={null} logCount={state.logCount} busy={busy} ask={setConfirm} act={act} log={log} />}
 
       {tab === 'committee' && (
         <CommitteeTab committee={committee} members={members} users={users} canAppoint={perms.appoint} cycle={cycle}
@@ -171,18 +172,92 @@ export default function ElectionsPage({ ctx }) {
       {tab === 'guide' && perms.oversee && <Guide />}
 
       {tab === 'past' && (!past ? <div className="card"><p className="muted small">Loading past results…</p></div>
-        : past.length ? past.map((p) => <ResultsPanel key={p.id} offices={p.offices} title={p.title} date={p.date} />)
+        : past.length ? past.map((p) => (
+          <ResultsPanel key={p.id} offices={p.offices} title={p.title} date={p.date}
+            onDelete={perms.admin && p.id !== 'earlier' ? () => setConfirm({
+              title: 'Delete these results', danger: true, ok: 'Delete', option: 'Also delete the log entries about this election',
+              text: `Delete "${p.title}" and all its votes from History? Members will no longer see these results. This can't be undone.`,
+              run: (withLogs) => act(() => api.delete(`/elections/cycles/${p.id}${withLogs ? '?logs=1' : ''}`), 'Election deleted').then(() => { setPast(null); setConfirm(null); }),
+            }) : null}
+            onDeletePoll={perms.admin && p.id === 'earlier' ? (o) => setConfirm({
+              title: 'Delete this poll', danger: true, ok: 'Delete',
+              text: `Delete the earlier poll for ${o.name} and its votes? This can't be undone.`,
+              run: () => act(() => api.delete(`/elections/polls/${o.pollId}`), 'Poll deleted').then(() => { setPast(null); setConfirm(null); }),
+            }) : null} />
+        ))
           : <EmptyState icon="vote" text="No published results yet." />)}
 
       <Modal open={!!confirm} onClose={() => setConfirm(null)} title={confirm?.title || ''}>
-        {confirm && (<>
-          <p className="small">{confirm.text}</p>
-          <div className="modal-foot">
-            <button className="btn btn-ghost" onClick={() => setConfirm(null)}>Not now</button>
-            <button className={`btn ${confirm.danger ? 'btn-danger-soft' : 'btn-pri'}`} disabled={busy} onClick={confirm.run}>{busy ? 'Working…' : confirm.ok}</button>
-          </div>
-        </>)}
+        {confirm && <ConfirmBody confirm={confirm} busy={busy} close={() => setConfirm(null)} />}
       </Modal>
+    </div>
+  );
+}
+
+function ConfirmBody({ confirm, busy, close }) {
+  const [opt, setOpt] = useState(false);
+  return (<>
+    <p className="small">{confirm.text}</p>
+    {confirm.option && <label className="el-pick" style={{ marginTop: 8 }}><input type="checkbox" checked={opt} onChange={(e) => setOpt(e.target.checked)} /><span>{confirm.option}</span></label>}
+    <div className="modal-foot">
+      <button className="btn btn-ghost" onClick={close}>Not now</button>
+      <button className={`btn ${confirm.danger ? 'btn-danger-soft' : 'btn-pri'}`} disabled={busy} onClick={() => confirm.run(opt)}>{busy ? 'Working…' : confirm.ok}</button>
+    </div>
+  </>);
+}
+
+/* ---------- Admin only: undo a step, delete the election, delete election logs ---------- */
+const STEP_NAMES = { setup: 'Offices (setting up)', nominations: 'Nominations open', review: 'Choosing candidates', ballot: 'Candidates published (voting paused)', live: 'Voting live', closed: 'Voting closed (results hidden)' };
+function AdminTools({ cycle, logCount, busy, ask, act, log }) {
+  const order = ['setup', 'nominations', 'review', 'ballot', 'live', 'closed', 'published'];
+  const at = cycle ? order.indexOf(cycle.stage) : -1;
+  const earlier = cycle ? order.slice(cycle.runoff ? order.indexOf('ballot') : 0, at) : [];
+  const [to, setTo] = useState('');
+  const votes = cycle ? cycle.offices.reduce((a, o) => a + (o.turnout || 0), 0) : 0;
+  const back = () => {
+    const clears = order.indexOf(to) < order.indexOf('ballot');
+    ask({
+      title: 'Go back to an earlier step', ok: 'Go back', danger: clears && votes > 0,
+      text: `Move "${cycle.title}" back to "${STEP_NAMES[to]}".${clears ? ' Going back before the ballot clears every vote cast so far, because the candidates may change.' : ''}${cycle.stage === 'published' ? ' Members will no longer see the results until they are published again.' : ''} The change is recorded in the Security log.`,
+      run: () => act(() => api.post('/elections/current/revert', { to }), `Back to "${STEP_NAMES[to]}"`).then((ok) => { if (ok) log('ELECTION', `Admin moved the election back to ${STEP_NAMES[to]}`); ask(null); setTo(''); }),
+    });
+  };
+  const del = () => ask({
+    title: 'Delete this election', danger: true, ok: 'Delete election', option: 'Also delete the log entries about this election',
+    text: `Delete "${cycle.title}" completely — offices, nominations, candidates, every vote and its notices. Members will no longer see it. This can't be undone.`,
+    run: (withLogs) => act(() => api.delete(`/elections/cycles/${cycle.id}${withLogs ? '?logs=1' : ''}`), 'Election deleted').then(() => ask(null)),
+  });
+  const delLogs = () => ask({
+    title: 'Delete election logs', danger: true, ok: 'Delete logs',
+    text: `Delete all ${logCount || 0} election entries from the Security log and the Audit Log (stage changes, votes recorded, nominations). Other logs are not touched, and this deletion itself stays recorded. This can't be undone.`,
+    run: () => act(() => api.delete('/elections/logs'), 'Election logs deleted').then(() => ask(null)),
+  });
+  return (
+    <div className="card el-admin">
+      <div className="card-h"><h3>Admin tools</h3><span className="chip sm">Admin only</span></div>
+      <p className="muted small el-hint">Undo a step or remove election records. Every action here asks first and is recorded in the Security log.</p>
+      {cycle && earlier.length > 0 && (
+        <div className="el-admin-row">
+          <div><b>Go back to an earlier step</b><span className="muted tiny">e.g. hide published results, re-open voting, pause voting</span></div>
+          <div className="el-office-add">
+            <select className="input sm" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Earlier step">
+              <option value="">Choose a step…</option>
+              {earlier.slice().reverse().map((st) => <option key={st} value={st}>{STEP_NAMES[st]}</option>)}
+            </select>
+            <button className="btn btn-sm btn-soft" disabled={!to || busy} onClick={back}>Go back</button>
+          </div>
+        </div>
+      )}
+      {cycle && (
+        <div className="el-admin-row">
+          <div><b>Delete this election</b><span className="muted tiny">{votes ? `${votes} votes, ` : ''}all its offices, nominations and notices</span></div>
+          <button className="btn btn-sm btn-danger-soft" disabled={busy} onClick={del}><Icon name="trash" size={12} /> Delete election</button>
+        </div>
+      )}
+      <div className="el-admin-row">
+        <div><b>Election logs</b><span className="muted tiny">{logCount || 0} entries in the Security log and Audit Log</span></div>
+        <button className="btn btn-sm btn-danger-soft" disabled={busy || !logCount} onClick={delLogs}><Icon name="trash" size={12} /> Delete election logs</button>
+      </div>
     </div>
   );
 }
@@ -564,7 +639,7 @@ function BallotPanel({ cycle, canAct, vote, voters }) {
 }
 
 /* ---------- Results (live for the committee; final for everyone once published) ---------- */
-function ResultsPanel({ offices, title, date, live, voters, embedded }) {
+function ResultsPanel({ offices, title, date, live, voters, embedded, onDelete, onDeletePoll }) {
   const body = (
     <div className="grid g2">
       {offices.map((o) => {
@@ -575,7 +650,7 @@ function ResultsPanel({ offices, title, date, live, voters, embedded }) {
         const tie = leaders.length > 1;
         return (
           <div className="el-office" key={o.name}>
-            <div className="nom-h"><h4>{o.name}{o.rounds?.length > 0 && <span className="chip sm el-round">Run-off</span>}</h4><span className="muted tiny">{total} vote{total === 1 ? '' : 's'}{voters ? ` · ${Math.round((total / voters) * 100)}% turnout` : ''}</span></div>
+            <div className="nom-h"><h4>{o.name}{o.rounds?.length > 0 && <span className="chip sm el-round">Run-off</span>}</h4><span className="muted tiny">{total} vote{total === 1 ? '' : 's'}{voters ? ` · ${Math.round((total / voters) * 100)}% turnout` : ''}</span>{onDeletePoll && o.pollId && <button className="icon-x" title="Delete this poll" aria-label={`Delete the poll for ${o.name}`} onClick={() => onDeletePoll(o)}><Icon name="trash" size={12} /></button>}</div>
             {!live && tie && <div className="voted-note warn"><Icon name="vote" size={14} /> Tie between {leaders.map((r) => r.name).join(' and ')}{embedded ? '' : ' — the Electoral Committee decides the next step'}.</div>}
             <div className="res-list">
               {res.map((r) => {
@@ -602,7 +677,7 @@ function ResultsPanel({ offices, title, date, live, voters, embedded }) {
   if (embedded) return <div className="stack sm-gap">{live && <p className="el-live-note"><span className="live-dot" /> Live — only the committee, the President and admins see these numbers</p>}{body}</div>;
   return (
     <div className="card">
-      <div className="card-h"><h3>{title}</h3>{date && <span className="muted tiny">{fmtDate(String(date).slice(0, 10))}</span>}</div>
+      <div className="card-h"><h3>{title}</h3><span className="el-res-h">{date && <span className="muted tiny">{fmtDate(String(date).slice(0, 10))}</span>}{onDelete && <button className="btn btn-sm btn-danger-soft" onClick={onDelete}><Icon name="trash" size={12} /> Delete</button>}</span></div>
       {body}
     </div>
   );

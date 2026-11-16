@@ -11,6 +11,10 @@ r.get('/status', auth, wrap(async (req, res) => res.json({ status: await cy.stat
 r.get('/past', auth, wrap(cy.past));
 r.post('/current/runoff', auth, wrap(cy.runoff));
 r.post('/cycles', auth, wrap(cy.create));
+r.post('/current/revert', auth, wrap(cy.revert));
+r.delete('/cycles/:id', auth, wrap(cy.remove));
+r.delete('/polls/:id', auth, wrap(cy.removePoll));
+r.delete('/logs', auth, wrap(cy.removeLogs));
 r.put('/current/offices', auth, wrap(cy.offices));
 r.put('/current/candidates', auth, wrap(cy.candidates));
 r.post('/current/stage', auth, wrap(cy.stage));

@@ -3,6 +3,9 @@ const Cycle = require('../models/ElectionCycle');
 const { Election, Ballot, Notification } = require('../models/records');
 const security = require('../services/security.service');
 const { lagosNow } = require('../services/birthday.service');
+const tombstones = require('../services/tombstones');
+const SecurityEvent = require('../models/SecurityEvent');
+const { AuditLog } = require('../models/records');
 
 // Who does what
 //   committee (Electoral Committee, admin): offices, eligibility, nominations, candidates, publishing those
@@ -14,7 +17,7 @@ const OVERSEE = ['admin', 'electoral', 'president'];
 const APPOINT = ['admin', 'president'];
 const has = (roles = [], list) => !roles.includes('alumni') && roles.some((r) => list.includes(r));
 const perms = (roles) => ({
-  committee: has(roles, COMMITTEE), oversee: has(roles, OVERSEE), appoint: has(roles, APPOINT),
+  committee: has(roles, COMMITTEE), oversee: has(roles, OVERSEE), appoint: has(roles, APPOINT), admin: has(roles, ['admin']),
   vote: !roles.includes('alumni'),
 });
 
@@ -121,6 +124,7 @@ exports.current = async (req, res) => {
     cycle: visible ? await view(cycle, req.user, dir) : null,
     preparing: !!cycle && !visible ? (cycle.mock ? 'practice' : 'real') : null,
     pool: p.committee && cycle && ['setup', 'nominations'].includes(cycle.stage) ? dir.pool : [],
+    logCount: p.admin ? await electionLogCount() : undefined,
     voters: dir.voters,
   });
 };
@@ -146,7 +150,7 @@ exports.past = async (req, res) => {
       id: 'earlier', title: 'Earlier polls', date: null,
       offices: polls.map((e) => {
         const v = e.votes instanceof Map ? Object.fromEntries(e.votes) : (e.votes || {});
-        return { name: e.post, turnout: Object.values(v).reduce((a, b) => a + b, 0), results: (e.candidateIds || []).map((id) => ({ ...who(id), votes: v[id] || 0 })).sort((a, b) => b.votes - a.votes) };
+        return { pollId: e.uid, name: e.post, turnout: Object.values(v).reduce((a, b) => a + b, 0), results: (e.candidateIds || []).map((id) => ({ ...who(id), votes: v[id] || 0 })).sort((a, b) => b.votes - a.votes) };
       }),
     });
   }
@@ -358,6 +362,87 @@ exports.vote = async (req, res) => {
     throw e;
   }
   reply(req, res, cycle);
+};
+
+/* ---------------- Admin tools: undo a step, delete an election, delete election logs ---------------- */
+// Election log entries: the server's Security log ("election" actions) and the choir's Audit Log entries about elections
+const AUDIT_ACTIONS = ['ELECTION', 'VOTE', 'NOM_SUGGEST'];
+const electionLogCount = async () => (await SecurityEvent.countDocuments({ type: 'election' })) + (await AuditLog.countDocuments({ action: { $in: AUDIT_ACTIONS } }));
+const adminOnly = (req, res) => { if (perms(req.user.roles).admin) return true; res.status(403).json({ msg: 'Only an admin can do this' }); return false; };
+// The deletion itself is always recorded (a separate type, so deleting election logs never removes it)
+const logAdmin = (req, detail) => security.recordAction(req, 'election_admin', { id: req.user.id, name: 'Elections' }, detail, true);
+const dropNotices = async (cycleId, keep = () => false) => {
+  const notes = await Notification.find({ uid: { $regex: `^elec-${cycleId}-` } }, { uid: 1 }).lean();
+  const ids = notes.map((n) => n.uid).filter((u) => !keep(u));
+  if (!ids.length) return;
+  await Notification.deleteMany({ uid: { $in: ids } });
+  await tombstones.add('notifs', ids);
+};
+
+// POST /api/elections/current/revert { to } — go back to an earlier step. Going back before the ballot
+// (to change offices, nominations or candidates) clears the votes, because the candidates may change.
+const ORDER = ['setup', 'nominations', 'review', 'ballot', 'live', 'closed', 'published'];
+exports.revert = async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const cycle = await load(res); if (!cycle) return;
+  const from = cycle.stage; const to = String(req.body?.to || '');
+  if (!ORDER.includes(to) || ORDER.indexOf(to) >= ORDER.indexOf(from)) return res.status(400).json({ msg: 'Choose an earlier step' });
+  if (cycle.runoff && ORDER.indexOf(to) < ORDER.indexOf('ballot')) return res.status(400).json({ msg: 'This election had a run-off: it can go back to the run-off ballot at the earliest' });
+  let cleared = 0;
+  if (ORDER.indexOf(to) < ORDER.indexOf('ballot')) cleared = (await removeBallots(cycle)).deletedCount || 0;
+  const name = await actorName(req);
+  const updated = await Cycle.findOneAndUpdate(
+    { _id: cycle._id, stage: from },
+    { $set: { stage: to }, $push: { history: { stage: to, note: `Admin went back to "${STAGE_LABEL[to]}"${cleared ? ` (${cleared} votes cleared)` : ''}`, at: new Date(), byId: req.user.id, byName: name } } },
+    { new: true },
+  );
+  if (!updated) return res.status(409).json({ msg: 'Someone else just changed the election — refresh to see it' });
+  // Notices for steps that are now undone are taken back
+  const undone = ['nominations', 'ballot', 'live', 'published'].filter((st) => ORDER.indexOf(st) > ORDER.indexOf(to));
+  await dropNotices(cycle._id, (uid) => !undone.some((st) => uid === `elec-${cycle._id}-${st}` || uid.startsWith(`elec-${cycle._id}-${st}-`)));
+  await logAdmin(req, `${updated.title}: went back from "${STAGE_LABEL[from]}" to "${STAGE_LABEL[to]}"${cleared ? `, ${cleared} votes cleared` : ''}`);
+  reply(req, res, updated);
+};
+
+// DELETE /api/elections/cycles/:id?logs=1 — remove an election (current or past) with its votes and notices,
+// and optionally the log entries about it
+exports.remove = async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const cycle = await Cycle.findById(String(req.params.id)).catch(() => null);
+  if (!cycle) return res.status(404).json({ msg: 'Election not found' });
+  const votes = (await removeBallots(cycle)).deletedCount || 0;
+  await dropNotices(cycle._id);
+  let logs = 0;
+  if (req.query.logs === '1') {
+    const since = new Date(cycle.createdAt.getTime() - 60000);
+    const ev = await SecurityEvent.find({ type: 'election', createdAt: { $gte: since }, detail: { $regex: cycle.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') } }, { _id: 1 }).lean();
+    logs = (await SecurityEvent.deleteMany({ _id: { $in: ev.map((e) => e._id) } })).deletedCount || 0;
+  }
+  await Cycle.deleteOne({ _id: cycle._id });
+  await logAdmin(req, `Deleted the election "${cycle.title}" (${STAGE_LABEL[cycle.stage]}): ${votes} votes${logs ? `, ${logs} log entries` : ''}`);
+  res.json({ ok: true, votes, logs });
+};
+
+// DELETE /api/elections/polls/:id — remove a poll from the older one-office system (shown under "Earlier polls")
+exports.removePoll = async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const poll = await Election.findOne({ uid: String(req.params.id) }).lean();
+  if (!poll) return res.status(404).json({ msg: 'Poll not found' });
+  await Ballot.deleteMany({ electionId: poll.uid });
+  await Election.deleteOne({ uid: poll.uid });
+  await logAdmin(req, `Deleted the earlier poll for ${poll.post}`);
+  res.json({ ok: true });
+};
+
+// DELETE /api/elections/logs — every election log entry (Security log "election" actions and Audit Log election entries)
+exports.removeLogs = async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const audit = await AuditLog.find({ action: { $in: AUDIT_ACTIONS } }, { uid: 1 }).lean();
+  const a = (await AuditLog.deleteMany({ uid: { $in: audit.map((x) => x.uid) } })).deletedCount || 0;
+  await tombstones.add('audit', audit.map((x) => x.uid));
+  const s = (await SecurityEvent.deleteMany({ type: 'election' })).deletedCount || 0;
+  await logAdmin(req, `Deleted ${a + s} election log entries`);
+  res.json({ ok: true, deleted: a + s });
 };
 
 // Status for the menu badge and dashboard

@@ -3,6 +3,7 @@ const User = require('../models/User');
 const R = require('../models/records');
 const elections = require('./elections.controller');
 const security = require('../services/security.service');
+const tombstones = require('../services/tombstones');
 
 const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', choirmaster: 'Choir Master', asstchoirmaster: 'Assistant Choir Master', custodian: 'Custodian', electoral: 'Electoral Committee', alumni: 'Old Member' };
 
@@ -110,12 +111,15 @@ exports.putAll = async (req, res) => {
     // Only records that are new or actually changed are written, in one batch per collection
     // (the browser sends everything on every save; rewriting it all made saves slow)
     const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const gone = await tombstones.get(); // deleted on purpose by an admin: never put back from an old page
     for (const { key, M, items, removed, saved } of plan) {
       const ops = [];
+      const deleted = new Set(gone[key] || []);
       for (const item of items) {
         const id = item && (item.id || item.uid);
         if (!id) continue;
         if (key === 'elections') continue; // elections run through /api/elections now
+        if (deleted.has(String(id)) && !saved.has(id)) continue;
         const { id: _drop, ...rest } = item;
         const before = saved.get(id);
         if (before && Object.keys(rest).every((k) => same(rest[k], before[k]))) continue;
