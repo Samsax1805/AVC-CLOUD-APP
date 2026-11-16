@@ -268,7 +268,8 @@ function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandida
   return (
     <div className="card el-manage">
       <div className="card-h"><h3>{c ? 'Committee controls' : 'Oversight'}</h3><span className="chip sm">{c ? 'Electoral Committee' : 'President'}</span></div>
-      <p className="muted small el-hint">{HINT[stage](cycle)} <button className="link-btn" onClick={openGuide}>Guide</button></p>
+      <QuickGuide cycle={cycle} committee={c} openGuide={openGuide} />
+      <p className="muted small el-hint">{HINT[stage](cycle)} <button className="link-btn" onClick={openGuide}>Full guide</button></p>
 
       {stage === 'setup' && (c ? <OfficesEditor offices={offices} pool={pool} save={saveOffices} canRename /> : <OfficeSummary offices={offices} />)}
       {stage === 'nominations' && (<>
@@ -641,6 +642,41 @@ function CommitteeTab({ committee, members, canAppoint, appoint, remove, cycle }
 }
 
 /* ---------- A short guide for the committee ---------- */
+// A short checklist on the committee's own page: what to do now, and what comes next
+const QUICK = [
+  ['setup', 'Choose the offices and who is eligible for each', 'Add offices from the list (or "New office"), then add eligible members — at least 2 per office.'],
+  ['nominations', 'Collect nominations — or skip them', '"Publish for nominations" lets members nominate; "Skip nominations" lets you choose the candidates yourselves.'],
+  ['review', 'Confirm the candidates', 'Tick at least 2 candidates per office, then "Publish candidates".'],
+  ['ballot', 'Go live', 'When the choir is ready, press "Go live". Members are told at once and can vote.'],
+  ['live', 'Watch the vote, then close it', 'Results update live here (members can\'t see them). Press "Close voting" when time is up.'],
+  ['closed', 'Check the count', 'A tied office can go to a run-off ("Hold a run-off"). Otherwise publish the results.'],
+  ['published', 'Results are out', 'Every member can see the winners. Start the next election when it\'s due.'],
+];
+function QuickGuide({ cycle, committee, openGuide }) {
+  const key = 'avc_el_quickguide_hidden';
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } });
+  const toggle = () => setHidden((h) => { try { localStorage.setItem(key, h ? '0' : '1'); } catch { /* private window */ } return !h; });
+  const at = QUICK.findIndex(([k]) => k === cycle.stage);
+  if (hidden) return <button className="link-btn el-qg-show" onClick={toggle}><Icon name="note" size={12} /> Show the step-by-step guide</button>;
+  return (
+    <div className="el-qg">
+      <div className="el-qg-h">
+        <b><Icon name="note" size={14} /> {committee ? 'Your step-by-step guide' : 'Where the election is'}</b>
+        <span><button className="link-btn" onClick={openGuide}>Full guide</button> · <button className="link-btn" onClick={toggle}>Hide</button></span>
+      </div>
+      <ol>
+        {QUICK.map(([k, title, how], i) => (
+          <li key={k} className={i < at ? 'done' : i === at ? 'now' : ''}>
+            <span className="el-qg-n">{i < at ? <Icon name="check" size={11} /> : i + 1}</span>
+            <div><b>{title}{k === 'nominations' && cycle.skippedNominations ? ' (skipped)' : ''}</b>{i === at && <p>{committee || ['ballot', 'live', 'closed'].includes(k) ? how : 'The Electoral Committee is working on this step.'}</p>}</div>
+          </li>
+        ))}
+      </ol>
+      {cycle.mock && <p className="muted tiny" style={{ margin: 0 }}>This is a practice election — try every button; nothing is kept.</p>}
+    </div>
+  );
+}
+
 function Guide() {
   const steps = [
     ['Practise first', 'New to this? Press "Run a practice election". It works exactly like a real one, is marked Practice everywhere, and is deleted when you end it.'],

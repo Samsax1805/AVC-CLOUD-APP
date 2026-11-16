@@ -8,13 +8,14 @@ import { rolesOf, ROLES, participates } from '../hooks/usePermissions';
 
 const DataContext = createContext(null);
 
-const withCurrentUser = (list, u) => {
+const withCurrentUser = (list, u, rolesFromUser = false) => {
   if (!u || !u.email) return list;
   const ex = list.find((x) => x.email === u.email);
   if (ex) {
     return list.map((x) => (x.email === u.email ? {
       ...x, name: u.name || x.name, avatar: u.avatar !== undefined ? u.avatar : x.avatar,
-      roles: u.roles && u.roles.length ? u.roles : x.roles, voice: u.voice || u.section || x.voice,
+      // The saved list from the server decides roles; what this browser remembered from sign-in may be out of date
+      roles: rolesFromUser && u.roles && u.roles.length ? u.roles : x.roles && x.roles.length ? x.roles : (u.roles && u.roles.length ? u.roles : ['member']), voice: u.voice || u.section || x.voice,
       dob: u.dob || x.dob, country: u.country || x.country, phone: u.phone || x.phone, provider: u.provider || x.provider,
     } : x));
   }
@@ -65,7 +66,15 @@ export const DataProvider = ({ children }) => {
   // otherwise an empty or partial copy could overwrite real records
   const loadOk = useRef(false);
 
-  useEffect(() => { setUsers((prev) => withCurrentUser(prev, user)); }, [user]);
+  // Each member's roles as this browser last loaded or saved them: the server uses this to refuse
+  // undoing a role change someone else made in the meantime
+  const baseRoles = useRef({});
+  // The signed-in account was just re-read from the server (see AuthContext), so its roles are current
+  useEffect(() => {
+    setUsers((prev) => withCurrentUser(prev, user, true));
+    const mine = user && users.find((u) => u.email === user.email);
+    if (mine && user.roles?.length) baseRoles.current[mine.id] = user.roles;
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearData = () => {
     setUsers([]); setSongs([]); setMinutes([]); setReceipts([]); setVoiceNotes([]); setSessions([]); setDebts([]);
@@ -85,6 +94,7 @@ export const DataProvider = ({ children }) => {
       .then(({ data }) => {
         if (!current) return;
         setUsers(withCurrentUser(data.users || [], user));
+        baseRoles.current = Object.fromEntries((data.users || []).map((u) => [u.id, u.roles || ['member']]));
         setSongs(data.songs || []); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
         setVoiceNotes(data.voiceNotes || []); setSessions(data.sessions || []); setDebts(data.debts || []);
         setDues(data.dues || []); setElections(data.elections || []); setNominations(data.nominations || {});
@@ -109,11 +119,12 @@ export const DataProvider = ({ children }) => {
     if (first.current) { first.current = false; return; }
     if (!user || loadingData || !loadOk.current) return;
     const t = setTimeout(() => {
+      const sent = users.map((u) => ({ ...u, rolesBase: baseRoles.current[u.id] || u.roles }));
       api.put('/data', {
-        users, songs, minutes, receipts, voiceNotes, sessions, debts, dues, elections,
+        users: sent, songs, minutes, receipts, voiceNotes, sessions, debts, dues, elections,
         nominations, audit, pendingUsers, roleHistory, duesSettings, announcements,
         documents, probations, notifs, pendingNoms,
-      }).catch((err) => {
+      }).then(() => { users.forEach((u) => { baseRoles.current[u.id] = u.roles; }); }).catch((err) => {
         if (err.response?.status === 409) { loadOk.current = false; toast(err.response.data?.msg || 'Save refused — please refresh the page.', 'err'); }
         else if (err.response?.status !== 401) console.warn('Data save failed.');
       });

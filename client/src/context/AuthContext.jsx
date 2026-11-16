@@ -30,6 +30,34 @@ export const AuthProvider = ({ children }) => {
     }[code] || 'Your session has expired — please log in again.', 'err');
   }), []);
 
+  // Roles change while people are signed in (an officer is appointed, or someone becomes an Old Member):
+  // re-read this account from the server on start, when the app comes back into view, and every few minutes
+  const refreshMe = async () => {
+    if (!localStorage.getItem('avc_token')) return null;
+    try {
+      const { data } = await api.get('/auth/me');
+      const fresh = mapUser(data.user);
+      setUser((cur) => {
+        if (!cur) return cur;
+        const next = { ...cur, ...fresh };
+        if (JSON.stringify(next) === JSON.stringify(cur)) return cur;
+        localStorage.setItem('avc_user', JSON.stringify(next));
+        return next;
+      });
+      return fresh;
+    } catch { return null; }
+  };
+  const signedIn = !!user;
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    refreshMe();
+    const onShow = () => { if (!document.hidden) refreshMe(); };
+    document.addEventListener('visibilitychange', onShow);
+    window.addEventListener('focus', onShow);
+    const t = setInterval(onShow, 3 * 60 * 1000);
+    return () => { document.removeEventListener('visibilitychange', onShow); window.removeEventListener('focus', onShow); clearInterval(t); };
+  }, [signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const finish = (u, token) => { if (token) localStorage.setItem('avc_token', token); localStorage.setItem('avc_user', JSON.stringify(u)); setUser(u); return u; };
 
   const login = async (email, pass) => {
@@ -98,6 +126,6 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => { localStorage.removeItem('avc_token'); localStorage.removeItem('avc_user'); setUser(null); };
 
-  return <AuthContext.Provider value={{ user, login, demoLogin, googleLogin, sandboxLogin, register, setSection, updateProfile, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, refreshMe, login, demoLogin, googleLogin, sandboxLogin, register, setSection, updateProfile, logout }}>{children}</AuthContext.Provider>;
 };
 export const useAuth = () => useContext(AuthContext);

@@ -315,6 +315,28 @@ button.chip:hover{background:var(--navy2)}
 .el-add-office{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .el-add-office .input{flex:1 1 220px;min-width:0;max-width:360px}
 .icon-x{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:#a1937a;background:none;border:1px solid transparent;cursor:pointer}
+.el-qg{border:1.5px solid #e9d7ab;background:#fffaf0;border-radius:12px;padding:12px 14px}
+.el-qg-h{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px}
+.el-qg-h b{display:flex;align-items:center;gap:6px;color:var(--navy)}
+.el-qg-h span{font-size:12px}
+.el-qg ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.el-qg li{display:flex;gap:10px;align-items:flex-start;padding:6px 8px;border-radius:8px;font-size:12.5px;color:#8a7f69}
+.el-qg li b{font-weight:600}
+.el-qg li p{margin:3px 0 0;color:#5c5545;font-size:12.5px;line-height:1.45}
+.el-qg li.done{color:#047857}
+.el-qg li.now{background:#fdf0d8;color:var(--navy)}
+.el-qg li.now b{font-weight:700}
+.el-qg-n{flex:0 0 20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-weight:700;background:#efe6d2;color:#8a7f69}
+.el-qg li.done .el-qg-n{background:#059669;color:#fff}
+.el-qg li.now .el-qg-n{background:var(--navy);color:var(--gold)}
+.el-qg-show{align-self:flex-start;display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.shell.dark .el-qg{background:#1a2c55;border-color:#2c4070}
+.shell.dark .el-qg li.now{background:#22386b;color:#eee7d6}
+.shell.dark .el-qg li p{color:#cbd3ea}
+.update-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:16px;border-radius:12px;background:var(--navy);color:#fff;font-size:13px;font-weight:600}
+.update-bar svg{color:var(--gold)}
+.update-bar span{flex:1;min-width:160px}
+.update-bar .icon-x{color:#c9d1ea}
 .el-new-office{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1.5px dashed var(--gold);border-radius:10px;background:#fdf8ec}
 .el-new-office .input{flex:1 1 220px;min-width:0}
 .el-rename{flex:1;min-width:0;font-weight:700}

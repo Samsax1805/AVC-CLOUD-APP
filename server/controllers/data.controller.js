@@ -131,7 +131,11 @@ exports.putAll = async (req, res) => {
         if (!existing || existing.status === 'pending') continue;
         const adminCount = await User.countDocuments({ roles: 'admin', status: 'active' });
         const before = existing.roles || ['member'];
-        const roles = nextRoles(actorRoles, before, mu.roles, adminCount);
+        // A browser that loaded the list before someone else changed this member's roles must not undo that
+        // change: role edits only apply when the roles it started from still match what is saved
+        const sameRoles = (x, y) => [...new Set(x)].sort().join() === [...new Set(y)].sort().join();
+        const stale = Array.isArray(mu.rolesBase) && !sameRoles(mu.rolesBase.length ? mu.rolesBase : ['member'], before);
+        const roles = stale ? before : nextRoles(actorRoles, before, mu.roles, adminCount);
         await User.updateOne({ _id: existing._id }, {
           $set: {
             name: mu.name, roles,

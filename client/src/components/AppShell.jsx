@@ -23,6 +23,7 @@ import ProbationPage from '../pages/Probation';
 import SecurityPage from '../pages/Security';
 import PsalmistsPage from '../pages/Psalmists';
 import DutyChat from './DutyChat';
+import LiveUpdates from './LiveUpdates';
 
 export default function AppShell() {
   const data = useDataContext() || {};
@@ -150,6 +151,7 @@ export default function AppShell() {
           <button className="avatar-btn" onClick={() => setPage('profile')}><Avatar user={me} size={34} /></button>
         </header>
         <main className="content" onClick={() => notifOpen && setNotifOpen(false)}>
+          <LiveUpdates me={me} electionStatus={data.electionStatus} setElectionStatus={data.setElectionStatus} toast={data.toast || (() => {})} />
           {data.loadFailed && (
             <div className="banner">
               Choir data could not be loaded, so lists may look empty. Nothing has been lost.

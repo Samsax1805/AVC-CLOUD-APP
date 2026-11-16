@@ -7,6 +7,7 @@ const wrap = (fn) => (req, res) => fn(req, res).catch((e) => { console.error('El
 
 const cy = require('../controllers/electionCycle.controller');
 r.get('/current', auth, wrap(cy.current));
+r.get('/status', auth, wrap(async (req, res) => res.json({ status: await cy.status(req.user.roles || []) })));
 r.get('/past', auth, wrap(cy.past));
 r.post('/current/runoff', auth, wrap(cy.runoff));
 r.post('/cycles', auth, wrap(cy.create));
