@@ -63,6 +63,17 @@ export const SONG_CATEGORIES = [
 // Songs uploaded before categories existed have a single free-text tag instead
 export const songCategories = (s) => (s.categories?.length ? s.categories : s.tag ? [s.tag] : []);
 
+// Accounts that look like the same person (same name, any order or spacing): usually someone who signed up twice
+const nameKey = (n) => String(n || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).sort().join(' ');
+export const lookalikes = (users, u) => users.filter((x) => x.id !== u.id && (x.status || 'active') === 'active' && nameKey(x.name) && nameKey(x.name) === nameKey(u.name));
+// "today", "3 days ago", "never" — only when the server shared it (officers who manage members)
+export const lastSignIn = (u) => {
+  if (!('lastLoginAt' in (u || {}))) return null;
+  if (!u.lastLoginAt) return 'never';
+  const days = Math.floor((Date.now() - new Date(u.lastLoginAt)) / 864e5);
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+};
+
 // The choir's offices up for election; the Electoral Committee can add a new office by name
 export const POSTS = [
   'President',

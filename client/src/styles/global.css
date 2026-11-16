@@ -333,6 +333,12 @@ button.chip:hover{background:var(--navy2)}
 .shell.dark .el-qg{background:#1a2c55;border-color:#2c4070}
 .shell.dark .el-qg li.now{background:#22386b;color:#eee7d6}
 .shell.dark .el-qg li p{color:#cbd3ea}
+.warn-text{color:#b45309;font-weight:700}
+.dup-note{margin-top:5px;padding:7px 10px;border-radius:8px;background:#fef3c7;color:#92400e;font-size:12px;line-height:1.45;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.dup-note .btn{padding:5px 10px}
+.dup-alt{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%;padding-top:6px;border-top:1px dashed #f0c36a}
+.el-member.warn{border-color:#f0c36a;background:#fffbf0}
+.shell.dark .dup-note{background:#3a2f12;color:#f5d48a}
 .update-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;margin-bottom:16px;border-radius:12px;background:var(--navy);color:#fff;font-size:13px;font-weight:600}
 .update-bar svg{color:var(--gold)}
 .update-bar span{flex:1;min-width:160px}

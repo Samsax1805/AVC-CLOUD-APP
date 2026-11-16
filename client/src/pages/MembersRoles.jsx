@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TODAY, uid, fmtDate, VOICE_PARTS } from '../utils/helpers';
+import { TODAY, uid, fmtDate, VOICE_PARTS, lookalikes, lastSignIn } from '../utils/helpers';
 import COUNTRIES from '../data/countries';
 import PhoneField, { joinPhone } from '../components/PhoneField';
 import { GRANTABLE, ROLES, PERMS } from '../hooks/usePermissions';
@@ -153,7 +153,7 @@ export default function MembersRoles({ ctx }) {
                 const off = u.status === 'deactivated';
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
-                    <td><div className="cell-user"><Avatar user={u} size={34} /><div><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{off && <span className="chip sm" style={{ marginLeft: 6, color: '#dc2626' }}>deactivated</span>}<div className="muted tiny">{u.email}</div></div></div></td>
+                    <td><div className="cell-user"><Avatar user={u} size={34} /><div><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{off && <span className="chip sm" style={{ marginLeft: 6, color: '#dc2626' }}>deactivated</span>}<div className="muted tiny">{u.email}{lastSignIn(u) && <> · {lastSignIn(u) === 'never' ? <span className="warn-text">never signed in</span> : `signed in ${lastSignIn(u)}`}</>}</div>{lookalikes(users, u).length > 0 && <div className="dup-note">⚠ Possible duplicate account: {lookalikes(users, u).map((x) => `${x.email}${lastSignIn(x) ? ` (signed in ${lastSignIn(x)})` : ''}`).join(', ')}</div>}</div></div></td>
                     <td>
                       {canParts && !off ? (
                         <select className="input sm" aria-label={`Part ${u.name} sings`} value={u.voice || ''} disabled={busy} onChange={(e) => changePart(u, e.target.value)}>

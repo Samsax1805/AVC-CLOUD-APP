@@ -57,7 +57,9 @@ exports.getAll = async (req, res) => {
 
     const all = await User.find().lean();
     // Deactivated members stay in the list (status shown) so their history keeps its names
-    out.users = all.filter((u) => u.status !== 'pending').map(mapMember);
+    // Officers who manage members also see when each account last signed in, to spot duplicate or unused accounts
+    const seesSignIns = (req.user.roles || []).some((r) => ['admin', 'president', 'provost', 'pro'].includes(r)) && !(req.user.roles || []).includes('alumni');
+    out.users = all.filter((u) => u.status !== 'pending').map((u) => (seesSignIns ? { ...mapMember(u), lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt).toISOString() : null } : mapMember(u)));
     out.pendingUsers = all.filter((u) => u.status === 'pending').map(mapMember);
     res.json(out);
   } catch (e) {
@@ -86,7 +88,8 @@ exports.putAll = async (req, res) => {
     for (const [key, M] of Object.entries(KEYS)) {
       if (!Array.isArray(body[key])) continue;
       const ids = body[key].map((item) => item && (item.id || item.uid)).filter(Boolean);
-      const existing = (await M.find({}, { uid: 1 }).lean()).map((d) => d.uid);
+      const docs = await M.find().lean();
+      const existing = docs.map((d) => d.uid);
       // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
       const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec)-/.test(String(id))));
       if (removed.length && isOfficer && removed.length > MAX_DELETES_PER_SAVE) {
@@ -94,7 +97,7 @@ exports.putAll = async (req, res) => {
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
       }
       const mayDelete = key === 'elections' ? false : isOfficer;
-      plan.push({ key, M, items: body[key], removed: mayDelete ? removed : [] });
+      plan.push({ key, M, items: body[key], removed: mayDelete ? removed : [], saved: new Map(docs.map((d) => [d.uid, d])) });
     }
     for (const key of ['roleHistory', 'nominations']) {
       if (body[key] === undefined) continue;
@@ -104,14 +107,21 @@ exports.putAll = async (req, res) => {
       if (!isOfficer || after < before) delete body[key]; // only officers write these, and they never shrink
     }
 
-    for (const { key, M, items, removed } of plan) {
+    // Only records that are new or actually changed are written, in one batch per collection
+    // (the browser sends everything on every save; rewriting it all made saves slow)
+    const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    for (const { key, M, items, removed, saved } of plan) {
+      const ops = [];
       for (const item of items) {
         const id = item && (item.id || item.uid);
         if (!id) continue;
         if (key === 'elections') continue; // elections run through /api/elections now
         const { id: _drop, ...rest } = item;
-        await M.updateOne({ uid: id }, { $set: { ...rest, uid: id } }, { upsert: true });
+        const before = saved.get(id);
+        if (before && Object.keys(rest).every((k) => same(rest[k], before[k]))) continue;
+        ops.push({ updateOne: { filter: { uid: id }, update: { $set: { ...rest, uid: id } }, upsert: true } });
       }
+      if (ops.length) await M.bulkWrite(ops, { ordered: true });
       if (removed.length) {
         await M.deleteMany({ uid: { $in: removed } });
         if (key === 'elections') await R.Ballot.deleteMany({ electionId: { $in: removed } });
@@ -125,24 +135,29 @@ exports.putAll = async (req, res) => {
     // Account status (approve / reject / deactivate / reactivate) and other members' parts only change
     // via /api/members, so an out-of-date copy of the list in someone's browser can't undo them
     if (Array.isArray(body.users)) {
+      // Everyone is read once; only members whose details or roles actually change are written
+      const all = await User.find({}, { name: 1, email: 1, roles: 1, status: 1, section: 1, avatar: 1, dob: 1, country: 1, phone: 1 }).lean();
+      const byId = new Map(all.map((u) => [String(u._id), u]));
+      const byEmail = new Map(all.map((u) => [String(u.email || '').toLowerCase(), u]));
+      let adminCount = all.filter((u) => (u.roles || []).includes('admin') && u.status === 'active').length;
       for (const mu of body.users) {
-        const q = mongoose.isValidObjectId(mu.id) ? { _id: mu.id } : { email: (mu.email || '').toLowerCase() };
-        const existing = await User.findOne(q).lean();
+        const existing = mongoose.isValidObjectId(mu.id) ? byId.get(String(mu.id)) : byEmail.get(String(mu.email || '').toLowerCase());
         if (!existing || existing.status === 'pending') continue;
-        const adminCount = await User.countDocuments({ roles: 'admin', status: 'active' });
         const before = existing.roles || ['member'];
         // A browser that loaded the list before someone else changed this member's roles must not undo that
         // change: role edits only apply when the roles it started from still match what is saved
         const sameRoles = (x, y) => [...new Set(x)].sort().join() === [...new Set(y)].sort().join();
         const stale = Array.isArray(mu.rolesBase) && !sameRoles(mu.rolesBase.length ? mu.rolesBase : ['member'], before);
         const roles = stale ? before : nextRoles(actorRoles, before, mu.roles, adminCount);
-        await User.updateOne({ _id: existing._id }, {
-          $set: {
-            name: mu.name, roles,
-            section: existing._id.toString() === req.user.id ? (mu.voice || mu.section || null) : (existing.section || null),
-            avatar: mu.avatar || null, dob: mu.dob || '', country: mu.country || '', phone: mu.phone || '',
-          },
-        });
+        const next = {
+          name: mu.name, roles,
+          section: existing._id.toString() === req.user.id ? (mu.voice || mu.section || null) : (existing.section || null),
+          avatar: mu.avatar || null, dob: mu.dob || '', country: mu.country || '', phone: mu.phone || '',
+        };
+        const unchanged = sameRoles(roles, before) && ['name', 'section', 'avatar', 'dob', 'country', 'phone'].every((k) => same(next[k] || null, existing[k] || null));
+        if (unchanged) continue;
+        await User.updateOne({ _id: existing._id }, { $set: next });
+        if (before.includes('admin') !== roles.includes('admin') && existing.status === 'active') adminCount += roles.includes('admin') ? 1 : -1;
         // Role changes are recorded by the server for the Security page; a new admin is emailed to the admins
         for (const r of roles.filter((x) => x !== 'member' && !before.includes(x))) {
           await security.recordAction(req, 'role_granted', existing, `Granted ${ROLE_LABEL[r] || r}`, r === 'admin');
