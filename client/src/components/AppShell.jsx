@@ -38,7 +38,6 @@ export default function AppShell() {
   const me = data.me || null;
   const notifs = data.notifs || [];
   const setNotifs = data.setNotifs || (() => {});
-  const elections = data.elections || [];
 
   // [FIX] Now it is safe to return early if the profile is still loading
   if (!me) {
@@ -51,7 +50,8 @@ export default function AppShell() {
 
   const ctx = { ...data, me, setPage, settingsTab };
   const nav = (typeof visibleNav === 'function' ? visibleNav(me) : NAV_DEFS) || [];
-  const liveElections = elections.filter((e) => e.status === 'live');
+  const es = data.electionStatus;
+  const electionBadge = es?.stage === 'live' ? 'LIVE' : es?.stage === 'nominations' ? 'Open' : es?.stage === 'published' ? 'New' : null;
   const unread = notifs.filter((n) => !(n.readBy || []).includes(me.id)).length;
 
   const openNotifs = () => { setNotifOpen((o) => !o); if (!notifOpen) setNotifs((p) => (p || []).map((n) => ((n.readBy || []).includes(me.id) ? n : { ...n, readBy: [...(n.readBy || []), me.id] }))); };
@@ -95,7 +95,7 @@ export default function AppShell() {
                 <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { setSettingsTab('profile'); setPage(n.id); setSideOpen(false); }}>
                   <Icon name={n.icon} size={16} />
                   <span>{n.id === 'debts' ? (PERMS.manageDebts(me) ? 'Debt Tracker' : 'My Debts') : n.label}</span>
-                  {n.id === 'elections' && liveElections.length > 0 && <span className="nav-live">{liveElections.length}</span>}
+                  {n.id === 'elections' && electionBadge && <span className={`nav-live ${electionBadge === 'LIVE' ? '' : 'soft'}`}>{electionBadge}</span>}
                 </button>
               ))}
             </div>

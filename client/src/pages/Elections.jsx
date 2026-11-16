@@ -1,359 +1,634 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { TODAY, uid, fmtDate, POSTS } from '../utils/helpers';
-import { PERMS, participates } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
-import Pagination, { usePaged } from '../components/ui/Pagination';
 import api from '../services/api';
 
-const totalOf = (e) => Object.values(e.votes || {}).reduce((a, b) => a + b, 0);
-const joinedYear = (u) => { const y = new Date((u?.joined || '') + 'T00:00:00').getFullYear(); return Number.isFinite(y) ? y : null; };
-const sameResults = (a, b) => a.length === b.length && a.every((x) => {
-  const y = b.find((z) => z.id === x.id);
-  return y && y.status === x.status && JSON.stringify(y.votes) === JSON.stringify(x.votes) && (y.votedIds || []).length === (x.votedIds || []).length;
-});
+// The election, step by step. The server decides who may do what; this page shows each role its part.
+// Selections show at once on screen and are saved in the background, in order.
+const STEPS = [
+  ['setup', 'Offices'], ['nominations', 'Nominations'], ['review', 'Candidates'], ['ballot', 'Ballot'],
+  ['live', 'Voting'], ['closed', 'Counting'], ['published', 'Results'],
+];
+const stepIndex = (s) => STEPS.findIndex(([k]) => k === s);
+const FAST = ['nominations', 'ballot', 'live', 'closed'];
+const errMsg = (e) => e.response?.data?.msg || 'That did not work — please try again';
+const yearNow = new Date().getFullYear();
+const TITLES = [`${yearNow} Executive Elections`, `${yearNow} By-election`, `${yearNow + 1} Executive Elections`];
 
 export default function ElectionsPage({ ctx }) {
-  const { me, users, members = [], elections, setElections, nominations, setNominations, log, toast, pendingNoms, setPendingNoms, notify } = ctx;
-  const manage = PERMS.manageElections(me);
-  const canGoLive = PERMS.goLiveElection(me);
-  const canVote = participates(me);
-  const [tab, setTab] = useState(manage ? 'polls' : 'vote');
-  const [draftNom, setDraftNom] = useState(() => JSON.parse(JSON.stringify(nominations || {})));
-  const [nomDirty, setNomDirty] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newPost, setNewPost] = useState('');
-  const [newCands, setNewCands] = useState([]);
-  const [selVote, setSelVote] = useState({});
-  const [voting, setVoting] = useState(null);
-  const [confirmDel, setConfirmDel] = useState(null);
-  const pollsPaged = usePaged(elections, 6);
-  const findUser = (id) => users.find((u) => u.id === id);
-  const isEligible = (id) => members.some((m) => m.id === id);
-  const latest = useRef(elections);
-  latest.current = elections;
+  const { me, users = [], members = [], toast, log, setUsers, setRoleHistory, notify, setElectionStatus } = ctx;
+  const [state, setState] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [tab, setTab] = useState('current');
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [past, setPast] = useState(null);
+  const pending = useRef(0); // saves still on their way: refreshes wait so they don't undo what you just picked
+  const edits = useRef(0); // bumps on every change, so an older refresh never overwrites a newer choice
+  const queue = useRef(Promise.resolve());
 
-  // Nomination list follows the saved one until the committee starts editing it
-  useEffect(() => { if (!nomDirty) setDraftNom(JSON.parse(JSON.stringify(nominations || {}))); }, [nominations, nomDirty]);
-
-  // Live results: refresh vote totals from the server while any poll is open
-  const anyLive = elections.some((e) => e.status === 'live');
+  const publishStatus = (cycle) => setElectionStatus?.(cycle ? { stage: cycle.stage, title: cycle.title, label: cycle.stageLabel, mock: cycle.mock } : null);
+  const load = useCallback(() => {
+    const at = edits.current;
+    return api.get('/elections/current')
+      .then(({ data }) => { if (pending.current || at !== edits.current) return; setState(data); setFailed(false); publishStatus(data.cycle); })
+      .catch(() => setFailed(true));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
+  // Leaving the page while a pick is still being saved asks first, so nothing is lost
   useEffect(() => {
-    if (!anyLive) return;
-    const t = setInterval(() => {
-      api.get('/elections').then(({ data }) => { if (!sameResults(latest.current, data)) setElections(data); }).catch(() => {});
-    }, 10000);
+    const stay = (e) => { if (pending.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', stay);
+    return () => window.removeEventListener('beforeunload', stay);
+  }, []);
+
+  // Live: results, turnout, nominations and stage changes refresh on their own
+  const stage = state?.cycle?.stage;
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) load(); }, FAST.includes(stage) ? 4000 : 15000);
     return () => clearInterval(t);
-  }, [anyLive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stage, load]);
+  useEffect(() => { if (tab === 'past' && !past) api.get('/elections/past').then(({ data }) => setPast(data)).catch(() => setPast([])); }, [tab, past]);
 
-  const togNom = (post, pid) => {
-    setNomDirty(true);
-    setDraftNom((d) => { const cur = d[post] || []; return { ...d, [post]: cur.includes(pid) ? cur.filter((x) => x !== pid) : [...cur, pid] }; });
+  // Show the change straight away, save it in the background (one at a time, in order), keep the server's answer
+  const apply = (change) => setState((s) => (s?.cycle ? { ...s, cycle: change(s.cycle) } : s));
+  const save = (optimistic, fn, done) => {
+    edits.current += 1;
+    pending.current += 1;
+    if (optimistic) apply(optimistic);
+    const mine = edits.current;
+    const run = queue.current.then(fn).then(({ data }) => {
+      if (done) toast(done);
+      if (data?.cycle && mine === edits.current) { setState((s) => ({ ...s, cycle: data.cycle })); publishStatus(data.cycle); }
+      return true;
+    }).catch((e) => { toast(errMsg(e), 'err'); return false; })
+      .finally(() => { pending.current -= 1; if (!pending.current && mine !== edits.current) load(); });
+    queue.current = run;
+    return run.then((ok) => { if (!ok) { edits.current += 1; load(); } return ok; });
   };
-  const saveNoms = () => { setNominations(JSON.parse(JSON.stringify(draftNom))); setNomDirty(false); log('ELECTION', 'Updated the nomination list'); toast('Nomination list saved'); };
-  const addSuggestion = (s) => {
-    const add = (n) => ({ ...n, [s.post]: [...new Set([...(n[s.post] || []), s.cand])] });
-    setNominations(add); setDraftNom(add);
-    setPendingNoms((p) => p.filter((x) => x.id !== s.id));
-    log('ELECTION', `Approved suggestion: ${findUser(s.cand)?.name} for ${s.post}`); toast('Added to nomination list');
-  };
-  // A post can hold a new election once its previous poll is closed
-  const eligibleNoms = (post) => (nominations[post] || []).filter(isEligible);
-  const availPosts = POSTS.filter((p) => eligibleNoms(p).length >= 2 && !elections.some((e) => e.post === p && e.status !== 'closed'));
-  const createPoll = () => {
-    if (!newPost || newCands.length < 2) return toast('Pick a post and at least 2 candidates', 'err');
-    setElections((p) => [{ id: uid('e'), post: newPost, candidateIds: newCands, status: 'draft', votes: Object.fromEntries(newCands.map((c) => [c, 0])), votedIds: [], choice: {}, created: TODAY }, ...p]);
-    log('ELECTION', `Created poll for ${newPost}`); toast('Poll created as draft'); setCreateOpen(false); setNewPost(''); setNewCands([]);
-  };
-  const setStatus = (id, status) => {
-    if (status === 'live' && !canGoLive) return toast('Only the President can take an election live', 'err');
-    const el = elections.find((e) => e.id === id);
-    setElections((p) => p.map((e) => (e.id === id ? { ...e, status, ...(status === 'closed' ? { closed: TODAY } : {}) } : e)));
-    log('ELECTION', `${status === 'live' ? 'Made voting LIVE for' : 'Closed voting for'} ${el.post}`);
-    if (status === 'live') notify(`Voting is now LIVE for the ${el.post} post — cast your vote!`);
-    if (status === 'closed') notify(`Voting has closed for ${el.post} — the final result is published.`);
-    toast(status === 'live' ? 'Poll is now LIVE — members can vote!' : 'Poll closed. Final results published.');
-  };
-  const deletePoll = (e) => {
-    setElections((p) => p.filter((x) => x.id !== e.id));
-    log('ELECTION', `Deleted draft poll for ${e.post}`); toast('Poll deleted'); setConfirmDel(null);
-  };
-  // Votes are counted by the server: one secret ballot per member, safe from simultaneous voting
-  const castVote = async (e, candId) => {
-    if (!canVote) return toast('Old Members can follow elections but not vote', 'err');
-    if (voting) return;
-    setVoting(e.id);
+  // Big steps (publish, go live…) wait for the server and refresh everything
+  const act = async (fn, done) => {
+    setBusy(true);
     try {
-      const { data } = await api.post(`/elections/${e.id}/vote`, { candId });
-      setElections((p) => p.map((x) => (x.id === e.id ? data : x)));
-      log('VOTE', `Voted in the ${e.post} election`); toast('Your vote has been cast 🗳️');
-    } catch (err) {
-      toast(err.response?.data?.msg || 'Your vote could not be recorded — please try again', 'err');
-      if (err.response?.status === 409) api.get('/elections').then(({ data }) => setElections(data)).catch(() => {});
-    } finally { setVoting(null); }
+      await queue.current;
+      const { data } = await fn();
+      if (done) toast(done);
+      edits.current += 1;
+      setState((s) => ({ ...s, cycle: data?.cycle ?? null }));
+      publishStatus(data?.cycle);
+      load();
+      return true;
+    } catch (e) { toast(errMsg(e), 'err'); load(); return false; } finally { setBusy(false); }
   };
 
-  const ResultBars = ({ e, final }) => {
-    const total = totalOf(e) || 1;
-    const max = Math.max(...e.candidateIds.map((c) => e.votes?.[c] || 0), 0);
-    const leaders = e.candidateIds.filter((c) => max > 0 && (e.votes?.[c] || 0) === max);
-    const tie = final && leaders.length > 1;
-    return (
-      <div className="res-list">
-        {tie && <div className="voted-note"><Icon name="vote" size={14} /> Tie between {leaders.map((c) => findUser(c)?.name || 'a former member').join(' and ')} — the Electoral Committee will decide the next step.</div>}
-        {e.candidateIds.map((cid) => {
-          const u = findUser(cid); const v = e.votes?.[cid] || 0; const pct = Math.round((v / total) * 100);
-          const isWin = final && !tie && leaders.includes(cid);
-          return (
-            <div className="res-row" key={cid}>
-              <Avatar user={u} size={30} />
-              <span className="res-name">{u?.name || 'Former member'} {isWin && <span className="win-tag">🏆 Winner</span>}</span>
-              <div className="res-track"><motion.div className="res-fill" initial={{ width: 0 }} animate={{ width: pct + '%' }} transition={{ duration: 0.7 }} style={{ background: isWin ? '#059669' : '#d18f26' }} /></div>
-              <span className="res-num">{v} · {pct}%</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-  const StatusBadge = ({ s }) => (
-    <span className={`status-badge ${s}`}>{s === 'live' && <span className="live-dot" />}{s === 'draft' ? 'Draft' : s === 'live' ? 'LIVE' : 'Closed'}</span>
-  );
-  const PollCard = ({ e }) => (
-    <div className="card poll-card">
-      <div className="poll-h">
-        <div><h3>{e.post}</h3><span className="muted tiny">Created {fmtDate(e.created)} · {e.candidateIds.length} candidates · {totalOf(e)} votes · {(e.votedIds || []).length} voted</span></div>
-        <StatusBadge s={e.status} />
-      </div>
-      <ResultBars e={e} final={e.status === 'closed'} />
-      <div className="poll-actions">
-        {e.status === 'draft' && <>{canGoLive ? <button className="btn btn-pri btn-sm" onClick={() => setStatus(e.id, 'live')}><Icon name="play" size={13} /> Go live</button> : <span className="chip sm">Waiting for the President to go live</span>}<button className="btn btn-sm btn-danger-soft" onClick={() => setConfirmDel(e)}><Icon name="trash" size={13} /> Delete</button></>}
-        {e.status === 'live' && <button className="btn btn-sm btn-soft" onClick={() => setStatus(e.id, 'closed')}><Icon name="check" size={13} /> Close poll & publish final result</button>}
-        {e.status === 'closed' && <span className="chip sm">Final result{e.closed ? ` · closed ${fmtDate(e.closed)}` : ''} — visible to all members</span>}
-      </div>
-    </div>
-  );
+  if (failed && !state) return <EmptyState icon="vote" text="The elections could not be loaded. Check your connection and refresh." />;
+  if (!state) return <div className="card"><p className="muted small">Loading elections…</p></div>;
 
-  const live = elections.filter((e) => e.status === 'live');
-  const drafts = elections.filter((e) => e.status === 'draft');
-  const closed = elections.filter((e) => e.status === 'closed');
+  const { perms, cycle, pool, voters } = state;
+  const committee = users.filter((u) => (u.status || 'active') === 'active' && u.roles.includes('electoral'));
 
-  const VotingBooth = () => (
-    <div className="stack">
-      {live.map((e) => {
-        const myChoice = e.choice?.[me.id];
-        return (
-          <div className="card poll-card" key={e.id}>
-            <div className="poll-h">
-              <div><h3>{e.post}</h3><span className="muted tiny">{totalOf(e)} votes so far · updates every few seconds</span></div>
-              <StatusBadge s="live" />
-            </div>
-            {!canVote ? (
-              <><div className="voted-note"><Icon name="eye" size={14} /> Old Members can follow the results but not vote.</div><ResultBars e={e} /></>
-            ) : !myChoice ? (
-              <>
-                <div className="stack sm-gap">
-                  {e.candidateIds.map((cid) => {
-                    const u = findUser(cid); const sel = selVote[e.id] === cid; const yr = joinedYear(u);
-                    return (
-                      <button key={cid} className={`cand-row ${sel ? 'sel' : ''}`} onClick={() => setSelVote((s) => ({ ...s, [e.id]: cid }))}>
-                        <Avatar user={u} size={34} />
-                        <div style={{ flex: 1, textAlign: 'left' }}><b>{u?.name || 'Former member'}</b><div className="muted tiny">{[u?.voice, yr && `joined ${yr}`].filter(Boolean).join(' · ')}</div></div>
-                        <span className={`radio ${sel ? 'sel' : ''}`} />
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="muted tiny" style={{ marginTop: 8 }}>Your ballot is secret — only the totals are shown. You can vote once.</p>
-                <div className="poll-actions"><button className="btn btn-pri" disabled={!selVote[e.id] || voting === e.id} onClick={() => castVote(e, selVote[e.id])}><Icon name="vote" size={15} /> {voting === e.id ? 'Recording…' : 'Cast my vote'}</button></div>
-              </>
-            ) : (
-              <><div className="voted-note"><Icon name="check" size={14} /> You voted for <b>{findUser(myChoice)?.name}</b>. Watching live results…</div><ResultBars e={e} /></>
-            )}
-          </div>
-        );
-      })}
-      {!manage && drafts.map((e) => (
-        <div className="card poll-card" key={e.id}>
-          <div className="poll-h"><div><h3>{e.post}</h3><span className="muted tiny">{canGoLive ? 'Ready for you to open — members can vote as soon as it goes live.' : 'Waiting for the President to open this poll.'}</span></div><StatusBadge s="draft" /></div>
-          {canGoLive && <div className="poll-actions"><button className="btn btn-pri btn-sm" onClick={() => setStatus(e.id, 'live')}><Icon name="play" size={13} /> Go live</button></div>}
-        </div>
-      ))}
-      {!live.length && (manage || !drafts.length) && <EmptyState icon="vote" text="No polls are open for voting right now." />}
-      {canVote && !manage && <div className="card">
-        <div className="card-h"><h3>Suggest a nomination</h3><span className="chip sm">Goes to the Electoral Committee</span></div>
-        <SuggestNom ctx={ctx} />
-      </div>}
-    </div>
-  );
+  const move = (to, done) => act(() => api.post('/elections/current/stage', { to }), done).then((ok) => { if (ok) log('ELECTION', done); setConfirm(null); });
+  const runoff = () => act(() => api.post('/elections/current/runoff'), 'Run-off called — press Go live when members are ready').then((ok) => { if (ok) log('ELECTION', 'Run-off called'); setConfirm(null); });
+  const saveOffices = (offices, done) => save((c) => ({ ...c, offices }), () => api.put('/elections/current/offices', { offices: offices.map((o) => ({ name: o.name, eligibleIds: o.eligible.map((m) => m.id) })) }), done);
+  const setCandidates = (office, ids) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, candidates: ids.map((id) => o.eligible.find((m) => m.id === id) || { id, name: '…' }) } : o)) }),
+    () => api.put('/elections/current/candidates', { office, candidateIds: ids }));
+  const nominate = (office, nomineeId) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, myNomination: nomineeId || undefined } : o)) }),
+    () => api.post('/elections/current/nominations', { office, nomineeId }), nomineeId ? 'Nomination saved' : 'Nomination withdrawn');
+  const vote = (office, candId) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, myVote: candId, turnout: (o.turnout || 0) + 1 } : o)) }),
+    () => api.post('/elections/current/vote', { office, candId }), 'Your vote has been cast 🗳️');
 
-  const deleteModal = (
-    <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Delete draft poll">
-      <p className="small">Delete the draft poll for <b>{confirmDel?.post}</b>? Nobody has voted in it yet.</p>
-      <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setConfirmDel(null)}>Cancel</button><button className="btn btn-pri" onClick={() => deletePoll(confirmDel)}>Delete</button></div>
-    </Modal>
-  );
-
-  /* ================= ELECTORAL COMMITTEE VIEW ================= */
-  if (manage) {
-    return (
-      <div className="stack">
-        <div className="page-head">
-          <div><h2>Election Centre</h2><p className="muted small">Build the nomination list and create polls. The President takes polls live.</p></div>
-          <button className="btn btn-pri" onClick={() => setCreateOpen(true)}><Icon name="plus" size={15} /> Create poll</button>
-        </div>
-        <div className="chip-row">
-          <button className={`chip lg ${tab === 'polls' ? 'on' : ''}`} onClick={() => setTab('polls')}>Polls & Results</button>
-          <button className={`chip lg ${tab === 'vote' ? 'on' : ''}`} onClick={() => setTab('vote')}>Voting Booth{live.length ? ` (${live.length})` : ''}</button>
-          <button className={`chip lg ${tab === 'nominations' ? 'on' : ''}`} onClick={() => setTab('nominations')}>Nomination List</button>
-        </div>
-        {tab === 'polls' && (
-          <>
-            <div className="grid g2">
-              {pollsPaged.items.map((e) => <PollCard key={e.id} e={e} />)}
-              {!elections.length && <EmptyState icon="vote" text="No polls yet — create one!" />}
-            </div>
-            <Pagination paged={pollsPaged} label="polls" />
-          </>
-        )}
-        {tab === 'vote' && <VotingBooth />}
-        {tab === 'nominations' && (
-          <div className="stack">
-            {pendingNoms.length > 0 && (
-              <div className="card pend-card">
-                <div className="card-h"><h3>Member suggestions</h3><span className="chip sm">Approve to add to the list</span></div>
-                <div className="stack sm-gap">
-                  {pendingNoms.map((s) => {
-                    const already = (nominations[s.post] || []).includes(s.cand);
-                    return (
-                      <div className="roster-row" key={s.id} style={{ border: '1px solid #e3d8c2', borderRadius: 10 }}>
-                        <Avatar user={findUser(s.cand)} size={30} />
-                        <div style={{ flex: 1 }}><b>{findUser(s.cand)?.name || 'Former member'}</b> for <b>{s.post}</b><div className="muted tiny">suggested by {s.by}{already ? ' · already on the list' : ''}</div></div>
-                        {!already && isEligible(s.cand) && <button className="btn btn-sm btn-pri" onClick={() => addSuggestion(s)}><Icon name="check" size={13} /> Add</button>}
-                        <button className="btn btn-sm btn-danger-soft" onClick={() => setPendingNoms((p) => p.filter((x) => x.id !== s.id))} title="Dismiss"><Icon name="x" size={13} /></button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            <div className="grid g2">
-              {POSTS.map((p) => <NomCard key={p} post={p} ids={draftNom[p] || []} members={members} findUser={findUser} isEligible={isEligible} onToggle={(id) => togNom(p, id)} />)}
-            </div>
-            <div className={`nom-save ${nomDirty ? 'dirty' : ''}`}>{nomDirty && <span className="muted small">Unsaved changes</span>}<button className="btn btn-pri" onClick={saveNoms}><Icon name="check" size={15} /> Save nomination list</button></div>
-          </div>
-        )}
-        <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create a new poll">
-          <div className="field"><label className="label">Post</label>
-            <select className="input" value={newPost} onChange={(e) => { setNewPost(e.target.value); setNewCands(eligibleNoms(e.target.value)); }}>
-              <option value="">Select a post…</option>
-              {availPosts.map((p) => <option key={p}>{p}</option>)}
-            </select>
-            {!availPosts.length && <p className="muted tiny" style={{ marginTop: 6 }}>No post is ready: a post needs at least 2 active nominees and no open or draft poll. Edit the nomination list first.</p>}
-          </div>
-          {newPost && (
-            <div className="field"><label className="label">Candidates (from nomination list)</label>
-              <div className="nom-grid">
-                {eligibleNoms(newPost).map((cid) => {
-                  const u = findUser(cid); const on = newCands.includes(cid);
-                  return <button key={cid} className={`nom-chip ${on ? 'on' : ''}`} onClick={() => setNewCands((c) => (on ? c.filter((x) => x !== cid) : [...c, cid]))}><Avatar user={u} size={22} />{u?.name}{on && <Icon name="check" size={12} />}</button>;
-                })}
-              </div>
-            </div>
-          )}
-          <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setCreateOpen(false)}>Cancel</button><button className="btn btn-pri" onClick={createPoll}>Create draft poll</button></div>
-        </Modal>
-        {deleteModal}
-      </div>
-    );
-  }
-
-  /* ================= MEMBER VIEW ================= */
   return (
     <div className="stack">
       <div className="page-head">
-        <div><h2>Elections</h2><p className="muted small">Cast your vote when polls are live — ballots are secret and results refresh every few seconds.</p></div>
-      </div>
-      <div className="chip-row">
-        <button className={`chip lg ${tab === 'vote' ? 'on' : ''}`} onClick={() => setTab('vote')}>Voting Booth</button>
-        <button className={`chip lg ${tab === 'results' ? 'on' : ''}`} onClick={() => setTab('results')}>Final Results</button>
-      </div>
-      {tab === 'vote' && <VotingBooth />}
-      {tab === 'results' && (
-        <div className="grid g2">
-          {closed.map((e) => (
-            <div className="card poll-card" key={e.id}>
-              <div className="poll-h"><div><h3>{e.post}</h3><span className="muted tiny">Final election result · {fmtDate(e.closed || e.created)}</span></div><StatusBadge s="closed" /></div>
-              <ResultBars e={e} final />
-            </div>
-          ))}
-          {!closed.length && <EmptyState icon="vote" text="No final results published yet." />}
+        <div>
+          <h2>Elections</h2>
+          <p className="muted small">{perms.committee ? 'Run the election: offices and eligibility, nominations, candidates, voting and results.'
+            : perms.oversee ? 'Follow the election, take it live, and publish the results with the Electoral Committee.'
+              : 'Nominate members, vote when the ballot is live, and see the published results.'}</p>
         </div>
+      </div>
+      <div className="chip-row el-tabs">
+        <button className={`chip lg ${tab === 'current' ? 'on' : ''}`} onClick={() => setTab('current')}>Current</button>
+        <button className={`chip lg ${tab === 'committee' ? 'on' : ''}`} onClick={() => setTab('committee')}>Committee</button>
+        {perms.oversee && <button className={`chip lg ${tab === 'guide' ? 'on' : ''}`} onClick={() => setTab('guide')}>Guide</button>}
+        <button className={`chip lg ${tab === 'past' ? 'on' : ''}`} onClick={() => setTab('past')}>History</button>
+      </div>
+
+      {tab === 'current' && (!cycle
+        ? (perms.committee
+          ? <StartCard busy={busy} openGuide={() => setTab('guide')} onStart={(title, mock) => act(() => api.post('/elections/cycles', { title, mock }), mock ? 'Practice election started — set it up like a real one' : 'Election started — now choose the offices')} />
+          : <EmptyState icon="vote" text={state.preparing === 'practice' ? 'The Electoral Committee is preparing a practice election.' : state.preparing ? 'The Electoral Committee is preparing the next election.' : 'There is no election in progress.'} />)
+        : (
+          <>
+            {cycle.mock && <div className="el-mock"><Icon name="shield" size={15} /><span><b>Practice election</b> — for learning only. Nothing here counts or is kept.</span></div>}
+            <div className="card el-head">
+              <div className="el-head-top">
+                <div><h3>{cycle.title}</h3><span className="muted tiny">{cycle.stageLabel}{cycle.history?.length ? ` · since ${fmtDate(String(cycle.history[cycle.history.length - 1].at).slice(0, 10))}` : ''}</span></div>
+                <span className={`status-badge ${stage === 'live' ? 'live' : stage === 'published' ? 'closed' : 'draft'}`}>{stage === 'live' && <span className="live-dot" />}{cycle.stageLabel}</span>
+              </div>
+              <Stepper stage={stage} showSetup={perms.oversee} skipped={cycle.skippedNominations} runoff={cycle.runoff} />
+            </div>
+
+            {perms.oversee && (
+              <ManagePanel cycle={cycle} perms={perms} pool={pool} busy={busy} voters={voters}
+                saveOffices={saveOffices} setCandidates={setCandidates} openGuide={() => setTab('guide')}
+                ask={setConfirm} move={move} act={act} runoff={runoff} />
+            )}
+
+            {['nominations', 'review'].includes(stage) && !(stage === 'review' && cycle.skippedNominations && perms.oversee) && (
+              <NominatePanel cycle={cycle} me={me} canAct={perms.vote} nominate={nominate} />
+            )}
+
+            {['ballot', 'live', 'closed'].includes(stage) && (
+              <BallotPanel cycle={cycle} canAct={perms.vote} vote={vote} voters={voters} />
+            )}
+
+            {stage === 'published' && <ResultsPanel offices={cycle.offices} title={cycle.mock ? 'Practice results' : 'Final results'} />}
+          </>
+        ))}
+
+      {tab === 'committee' && (
+        <CommitteeTab committee={committee} members={members} canAppoint={perms.appoint} cycle={cycle}
+          appoint={(u) => {
+            setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: [...x.roles.filter((y) => y !== 'member'), 'electoral'] } : x)));
+            setRoleHistory((p) => [{ id: uid('rh'), userId: u.id, role: 'electoral', granted: TODAY, revoked: null }, ...p]);
+            log('ROLE_GRANTED', `Appointed ${u.name} to the Electoral Committee`);
+            notify(`${u.name} joined the Electoral Committee`);
+            toast(`${u.name} is now on the Electoral Committee`);
+          }}
+          remove={(u) => {
+            setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: x.roles.filter((y) => y !== 'electoral') } : x)));
+            setRoleHistory((p) => p.map((h) => (h.userId === u.id && h.role === 'electoral' && !h.revoked ? { ...h, revoked: TODAY } : h)));
+            log('ROLE_REVOKED', `Removed ${u.name} from the Electoral Committee`);
+            toast(`${u.name} left the Electoral Committee`);
+          }} />
       )}
-      {deleteModal}
+
+      {tab === 'guide' && perms.oversee && <Guide />}
+
+      {tab === 'past' && (!past ? <div className="card"><p className="muted small">Loading past results…</p></div>
+        : past.length ? past.map((p) => <ResultsPanel key={p.id} offices={p.offices} title={p.title} date={p.date} />)
+          : <EmptyState icon="vote" text="No published results yet." />)}
+
+      <Modal open={!!confirm} onClose={() => setConfirm(null)} title={confirm?.title || ''}>
+        {confirm && (<>
+          <p className="small">{confirm.text}</p>
+          <div className="modal-foot">
+            <button className="btn btn-ghost" onClick={() => setConfirm(null)}>Not now</button>
+            <button className={`btn ${confirm.danger ? 'btn-danger-soft' : 'btn-pri'}`} disabled={busy} onClick={confirm.run}>{busy ? 'Working…' : confirm.ok}</button>
+          </div>
+        </>)}
+      </Modal>
     </div>
   );
 }
 
-/* ---- One post on the nomination list: chosen nominees, plus a search to add more ---- */
-function NomCard({ post, ids, members, findUser, isEligible, onToggle }) {
-  const [q, setQ] = useState('');
-  const term = q.trim().toLowerCase();
-  const matches = term ? members.filter((u) => !ids.includes(u.id) && u.name.toLowerCase().includes(term)).slice(0, 6) : [];
+/* ---------- Steps across the top ---------- */
+function Stepper({ stage, showSetup, skipped, runoff }) {
+  const at = stepIndex(stage);
+  const steps = (showSetup ? STEPS : STEPS.slice(1)).map(([k, l]) => [k, k === 'nominations' && skipped ? 'Nominations skipped' : k === 'ballot' && runoff ? 'Run-off ballot' : k === 'live' && runoff ? 'Run-off vote' : l]);
   return (
-    <div className="card nom-card">
-      <div className="nom-h"><h4>{post}</h4><span className="chip sm">{ids.filter(isEligible).length} nominated</span></div>
-      <div className="nom-grid">
-        {ids.map((id) => {
-          const u = findUser(id);
+    <ol className="el-steps" aria-label="Election progress">
+      {steps.map(([k, text]) => {
+        const i = stepIndex(k);
+        const skip = k === 'nominations' && skipped;
+        return <li key={k} className={skip ? 'skip' : i < at ? 'done' : i === at ? 'now' : ''}><span>{skip ? '–' : i < at ? <Icon name="check" size={11} /> : i + (showSetup ? 1 : 0)}</span>{text}</li>;
+      })}
+    </ol>
+  );
+}
+
+/* ---------- No election yet (committee) ---------- */
+function StartCard({ busy, onStart, openGuide }) {
+  const [title, setTitle] = useState(TITLES[0]);
+  return (
+    <div className="card el-start">
+      <Icon name="vote" size={28} />
+      <h3>Start a new election</h3>
+      <p className="muted small">You'll choose the offices and who is eligible first. Members see nothing until you publish.</p>
+      <div className="el-start-row">
+        <select className="input" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Election">
+          {TITLES.map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <button className="btn btn-pri" disabled={busy} onClick={() => onStart(title, false)}><Icon name="plus" size={14} /> Start</button>
+      </div>
+      <div className="el-or"><span>or</span></div>
+      <button className="btn btn-soft" disabled={busy} onClick={() => onStart('', true)}><Icon name="shield" size={14} /> Run a practice election</button>
+      <p className="muted tiny">A practice run works exactly like the real thing, is clearly marked "Practice", can be ended at any time and is never kept in the results. <button className="link-btn" onClick={openGuide}>Read the election guide</button></p>
+    </div>
+  );
+}
+
+/* ---------- Committee, President and admin controls for each stage ---------- */
+function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandidates, ask, move, act, runoff, openGuide }) {
+  const { stage, offices } = cycle;
+  const [editing, setEditing] = useState(false);
+  const c = perms.committee;
+  const conf = (title, text, ok, to, done, danger) => ask({ title, text, ok, danger, run: () => move(to, done) });
+  const cancel = () => ask({
+    title: cycle.mock ? 'End the practice election' : 'Cancel this election', danger: true, ok: cycle.mock ? 'End practice' : 'Yes, cancel it',
+    text: cycle.mock ? 'The practice election and every practice vote are deleted.' : `Cancel "${cycle.title}"? Its offices, eligibility lists and nominations are deleted. This can't be undone.`,
+    run: () => act(() => api.delete('/elections/current'), cycle.mock ? 'Practice election ended' : 'Election cancelled').then(() => ask(null)),
+  });
+  const ties = offices.filter((o) => o.tie);
+
+  const actions = ({
+    setup: c && [
+      <button key="p" className="btn btn-pri" disabled={busy} onClick={() => conf('Publish for nominations', `Members will see the ${offices.length} office${offices.length === 1 ? '' : 's'} and who is eligible, and can start nominating. You can still adjust eligibility while nominations are open.`, 'Publish', 'nominations', 'Nominations are open — members have been notified')}><Icon name="send" size={14} /> Publish for nominations</button>,
+      <button key="s" className="btn btn-soft" disabled={busy} onClick={() => conf('Skip nominations', 'Members will not nominate. You choose the candidates for each office straight from the eligible members, then publish them.', 'Skip to candidates', 'review', 'Nominations skipped — tick the candidates for each office')}>Skip nominations — choose candidates</button>,
+    ],
+    nominations: c && [
+      <button key="c" className="btn btn-pri" disabled={busy} onClick={() => conf('Close nominations', 'Members can no longer nominate. Everyone nominated becomes a suggested candidate for you to confirm.', 'Close nominations', 'review', 'Nominations closed — now confirm the candidates')}><Icon name="check" size={14} /> Close nominations</button>,
+      <button key="h" className="btn btn-ghost" disabled={busy} onClick={() => conf('Hide from members', 'Members will no longer see the offices until you publish again. Nominations made so far are kept.', 'Hide', 'setup', 'Hidden from members')}>Hide from members</button>,
+    ],
+    review: c && [
+      <button key="p" className="btn btn-pri" disabled={busy} onClick={() => conf('Publish the candidates', 'Members will see the final candidates for each office. Voting starts only when someone presses Go live.', 'Publish candidates', 'ballot', 'Candidates published')}><Icon name="send" size={14} /> Publish candidates</button>,
+      cycle.skippedNominations
+        ? <button key="o" className="btn btn-ghost" disabled={busy} onClick={() => move('setup', 'Back to offices')}>Back to offices</button>
+        : <button key="r" className="btn btn-ghost" disabled={busy} onClick={() => move('nominations', 'Nominations reopened')}>Reopen nominations</button>,
+      cycle.skippedNominations && <button key="n" className="btn btn-ghost" disabled={busy} onClick={() => conf('Open nominations instead', 'Members will be able to nominate after all. The candidates you ticked are kept as suggestions.', 'Open nominations', 'nominations', 'Nominations are open')}>Open nominations instead</button>,
+    ],
+    ballot: [
+      <button key="g" className="btn btn-pri el-go" disabled={busy} onClick={() => conf(cycle.runoff ? 'Go live with the run-off' : 'Go live', `${cycle.runoff ? 'The run-off vote' : 'Voting'} opens now. Members are notified and can each vote once per office. Live results are visible only to the committee, the President and admins.`, 'Go live', 'live', cycle.runoff ? 'Run-off voting is LIVE' : 'Voting is LIVE')}><Icon name="play" size={14} /> Go live</button>,
+      c && !cycle.runoff && <button key="b" className="btn btn-ghost" disabled={busy} onClick={() => move('review', 'Back to candidates')}>Back to candidates</button>,
+    ],
+    live: [<button key="x" className="btn btn-soft" disabled={busy} onClick={() => conf('Close voting', 'No more votes will be accepted. Results stay private until you publish them.', 'Close voting', 'closed', 'Voting closed — check the count')}><Icon name="check" size={14} /> Close voting</button>],
+    closed: [
+      ties.length > 0 && <button key="t" className="btn btn-pri" disabled={busy} onClick={() => ask({ title: 'Hold a run-off', ok: 'Call the run-off', text: `Members vote again, only between the tied candidates, for: ${ties.map((o) => o.name).join(', ')}. Offices with a clear winner keep their result. You'll press Go live to open the run-off.`, run: runoff })}><Icon name="vote" size={14} /> Hold a run-off for {ties.length === 1 ? ties[0].name : `${ties.length} tied offices`}</button>,
+      <button key="p" className={`btn ${ties.length ? 'btn-soft' : 'btn-pri'}`} disabled={busy} onClick={() => conf('Publish the results', `Every member will see the final results.${ties.length ? ' Tied offices will show as a tie.' : ''} This can't be undone.`, 'Publish results', 'published', 'Results published')}><Icon name="send" size={14} /> Publish results{ties.length ? ' as they are' : ''}</button>,
+    ],
+    published: c && [<StartNew key="n" busy={busy} mock={cycle.mock} start={(title, mock) => act(() => api.post('/elections/cycles', { title, mock }), mock ? 'Practice election started' : 'New election started — the last results moved to Past results')} />],
+  }[stage] || []).filter(Boolean);
+  const canCancel = c && (cycle.mock || ['setup', 'nominations', 'review', 'ballot'].includes(stage));
+
+  return (
+    <div className="card el-manage">
+      <div className="card-h"><h3>{c ? 'Committee controls' : 'Oversight'}</h3><span className="chip sm">{c ? 'Electoral Committee' : 'President'}</span></div>
+      <p className="muted small el-hint">{HINT[stage](cycle)} <button className="link-btn" onClick={openGuide}>Guide</button></p>
+
+      {stage === 'setup' && (c ? <OfficesEditor offices={offices} pool={pool} save={saveOffices} /> : <OfficeSummary offices={offices} />)}
+      {stage === 'nominations' && (<>
+        <NominationTally offices={offices} nominators={cycle.nominators} voters={voters} />
+        {c && <button className="btn btn-sm btn-ghost el-self-start" onClick={() => setEditing((v) => !v)}><Icon name="edit" size={12} /> {editing ? 'Done editing' : 'Edit offices & eligibility'}</button>}
+        {c && editing && <OfficesEditor offices={offices} pool={pool} save={saveOffices} />}
+      </>)}
+      {stage === 'review' && <CandidatesEditor offices={offices} readOnly={!c} save={setCandidates} skipped={cycle.skippedNominations} />}
+      {stage === 'ballot' && <OfficeSummary offices={offices} candidates />}
+      {['live', 'closed'].includes(stage) && <>
+        {stage === 'closed' && ties.length > 0 && <div className="voted-note warn"><Icon name="vote" size={14} /> Tie for {ties.map((o) => o.name).join(', ')}. Hold a run-off between the tied candidates, or publish the results as they are.</div>}
+        <ResultsPanel offices={offices} live={stage === 'live'} voters={voters} embedded />
+      </>}
+
+      {(actions.length > 0 || canCancel) && (
+        <div className="el-actions">
+          {actions}
+          {canCancel && <button className="btn btn-sm btn-danger-soft el-cancel" disabled={busy} onClick={cancel}><Icon name="trash" size={12} /> {cycle.mock ? 'End practice' : 'Cancel election'}</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+const HINT = {
+  setup: () => 'Step 1 — choose the offices and who is eligible for each. Members can\'t see any of this until you publish. You can publish for nominations, or skip nominations and choose the candidates yourselves.',
+  nominations: () => 'Step 2 — members are nominating. Counts and who nominated whom update live.',
+  review: (c) => (c.skippedNominations ? 'Step 3 — nominations were skipped: tick at least 2 candidates for each office from the eligible members.' : 'Step 3 — tick the candidates for each office (at least 2). Everyone nominated is ticked for you; you can add any eligible member.'),
+  ballot: (c) => (c.runoff ? 'Run-off — only the tied offices vote again, between the tied candidates. Press Go live when members are ready.' : 'Step 4 — the candidates are published. Press Go live when the choir is ready to vote.'),
+  live: () => 'Voting is live. Results update every few seconds and are visible only to the committee, the President and admins.',
+  closed: () => 'Voting is closed. Check the count — hold a run-off for any tie, then publish the results to every member.',
+  published: (c) => (c.mock ? 'The practice results are published. End the practice when you are done.' : 'The results are published to every member.'),
+};
+
+function StartNew({ busy, start, mock }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(TITLES[0]);
+  if (!open) return <button className="btn btn-soft" disabled={busy} onClick={() => setOpen(true)}><Icon name="plus" size={14} /> {mock ? 'Start a real election' : 'Start a new election'}</button>;
+  return (
+    <div className="el-start-row">
+      <select className="input sm" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Election">{TITLES.map((t) => <option key={t}>{t}</option>)}</select>
+      <button className="btn btn-sm btn-pri" disabled={busy} onClick={() => start(title, false)}>Start</button>
+      <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+    </div>
+  );
+}
+
+/* Offices and who is eligible: everything is picked from lists, nothing typed */
+function OfficesEditor({ offices, pool, save }) {
+  const names = offices.map((o) => o.name);
+  const free = POSTS.filter((p) => !names.includes(p));
+  const set = (name, eligible) => save(offices.map((o) => (o.name === name ? { ...o, eligible } : o)));
+  return (
+    <div className="stack sm-gap">
+      <div className="el-add-office">
+        <select className="input" value="" disabled={!free.length} onChange={(e) => e.target.value && save([...offices, { name: e.target.value, eligible: [] }], `${e.target.value} added`)} aria-label="Add an office">
+          <option value="">{free.length ? '+ Add an office…' : 'Every office is added'}</option>
+          {free.map((p) => <option key={p}>{p}</option>)}
+        </select>
+        {free.length > 0 && <button className="btn btn-sm btn-soft" onClick={() => save([...offices, ...free.map((name) => ({ name, eligible: [] }))], 'All offices added')}>Add all offices</button>}
+      </div>
+      {!offices.length && <p className="muted small">No offices yet — add the offices up for election.</p>}
+      <div className="grid g2">
+        {offices.map((o) => {
+          const ids = o.eligible.map((m) => m.id);
+          const left = pool.filter((m) => !ids.includes(m.id));
           return (
-            <button key={id} className="nom-chip on" onClick={() => onToggle(id)} title="Remove from the list">
-              <Avatar user={u} size={22} /><span className="nom-name">{u?.name || 'Former member'}</span><Icon name="x" size={12} />
-            </button>
+            <div className="el-office" key={o.name}>
+              <div className="nom-h">
+                <h4>{o.name}</h4>
+                <span className={`chip sm ${o.eligible.length < 2 ? 'warn' : ''}`}>{o.eligible.length} eligible</span>
+                <button className="icon-x" title={`Remove ${o.name}`} aria-label={`Remove ${o.name}`} onClick={() => save(offices.filter((x) => x.name !== o.name), `${o.name} removed`)}><Icon name="x" size={13} /></button>
+              </div>
+              <div className="nom-grid">
+                {o.eligible.map((m) => (
+                  <button key={m.id} className="nom-chip on" title="Remove" onClick={() => set(o.name, o.eligible.filter((x) => x.id !== m.id))}>
+                    <span className="nom-name">{m.name}</span><Icon name="x" size={11} />
+                  </button>
+                ))}
+                {!o.eligible.length && <span className="muted tiny">Nobody eligible yet.</span>}
+              </div>
+              <div className="el-office-add">
+                <select className="input sm" value="" disabled={!left.length} aria-label={`Add an eligible member for ${o.name}`}
+                  onChange={(e) => { const m = pool.find((x) => x.id === e.target.value); if (m) set(o.name, [...o.eligible, m]); }}>
+                  <option value="">{left.length ? '+ Add eligible member…' : 'Everyone is eligible'}</option>
+                  {left.map((m) => <option key={m.id} value={m.id}>{m.name}{m.part ? ` · ${m.part}` : ''}</option>)}
+                </select>
+                {left.length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => set(o.name, [...o.eligible, ...left])}>All members</button>}
+                {o.eligible.length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => set(o.name, [])}>Clear</button>}
+              </div>
+            </div>
           );
         })}
-        {!ids.length && <span className="muted tiny">Nobody nominated yet.</span>}
       </div>
-      <div className="nom-add">
-        <Icon name="search" size={14} />
-        <input className="input sm" value={q} onChange={(e) => setQ(e.target.value)} placeholder={members.length ? 'Add a nominee — type a name…' : 'No active members yet'} disabled={!members.length} aria-label={`Add a nominee for ${post}`} />
+      <p className="muted tiny">Members on the Electoral Committee and Old Members can't be made eligible. Each office needs at least 2 eligible members.</p>
+    </div>
+  );
+}
+
+function OfficeSummary({ offices, candidates }) {
+  return (
+    <div className="grid g2">
+      {offices.map((o) => {
+        const list = (candidates ? o.candidates : o.eligible) || [];
+        return (
+          <div className="el-office" key={o.name}>
+            <div className="nom-h"><h4>{o.name}</h4>{o.settled ? <span className="chip sm ok">Decided</span> : <span className="chip sm">{list.length} {candidates ? 'candidates' : 'eligible'}</span>}</div>
+            <div className="nom-grid">{list.map((m) => <span key={m.id} className="nom-chip"><span className="nom-name">{m.name}</span></span>)}{!list.length && <span className="muted tiny">None yet.</span>}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Who nominated whom: the committee (and admins) see the names; the President sees the counts
+function Nominators({ by }) {
+  if (!by?.length) return null;
+  return <div className="el-by"><span>Nominated by</span> {by.join(', ')}</div>;
+}
+
+function NominationTally({ offices, nominators, voters }) {
+  return (
+    <div className="stack sm-gap">
+      <div className="el-kpis">
+        <div><b>{nominators || 0}</b><span>members have nominated</span></div>
+        <div><b>{voters ? Math.round(((nominators || 0) / voters) * 100) : 0}%</b><span>of the choir</span></div>
       </div>
-      {term && (
-        <div className="nom-results">
-          {matches.map((u) => (
-            <button key={u.id} className="nom-result" onClick={() => { onToggle(u.id); setQ(''); }}>
-              <Avatar user={u} size={26} /><span><b>{u.name}</b>{u.voice && <span className="muted tiny"> · {u.voice}</span>}</span><Icon name="plus" size={14} />
-            </button>
-          ))}
-          {!matches.length && <span className="muted tiny">No member matches “{q.trim()}”.</span>}
+      <div className="grid g2">
+        {offices.map((o) => (
+          <div className="el-office" key={o.name}>
+            <div className="nom-h"><h4>{o.name}</h4><span className="chip sm">{(o.nominations || []).reduce((a, n) => a + n.count, 0)} nominations</span></div>
+            {(o.nominations || []).length ? (
+              <div className="el-tally">{o.nominations.map((n) => <div key={n.id}><div className="el-tally-row"><span>{n.name}</span><b>{n.count}</b></div><Nominators by={n.by} /></div>)}</div>
+            ) : <span className="muted tiny">No nominations yet.</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Choosing the candidates: every eligible member, nominated ones first, ticked to go on the ballot */
+function CandidatesEditor({ offices, readOnly, save, skipped }) {
+  return (
+    <div className="grid g2">
+      {offices.map((o) => {
+        const chosen = (o.candidates || []).map((m) => m.id);
+        const noms = Object.fromEntries((o.nominations || []).map((n) => [n.id, n]));
+        const list = [...(o.eligible || [])].sort((a, b) => (noms[b.id]?.count || 0) - (noms[a.id]?.count || 0) || a.name.localeCompare(b.name));
+        const toggle = (id) => save(o.name, chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
+        return (
+          <div className="el-office" key={o.name}>
+            <div className="nom-h"><h4>{o.name}</h4><span className={`chip sm ${chosen.length < 2 ? 'warn' : ''}`}>{chosen.length} candidate{chosen.length === 1 ? '' : 's'}</span></div>
+            <div className="stack xs-gap">
+              {list.map((m) => (
+                <label key={m.id} className={`el-pick ${chosen.includes(m.id) ? 'on' : ''}`}>
+                  <input type="checkbox" checked={chosen.includes(m.id)} disabled={readOnly} onChange={() => toggle(m.id)} />
+                  <span className="el-pick-main"><b>{m.name}</b>{noms[m.id]?.by && <Nominators by={noms[m.id].by} />}</span>
+                  {!skipped && <span className="muted tiny">{noms[m.id] ? `${noms[m.id].count} nomination${noms[m.id].count === 1 ? '' : 's'}` : 'not nominated'}</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- Members: nominate from a dropdown ---------- */
+function NominatePanel({ cycle, me, canAct, nominate }) {
+  const open = cycle.stage === 'nominations';
+  return (
+    <div className="card">
+      <div className="card-h"><h3>{open ? 'Make your nominations' : cycle.skippedNominations ? 'Candidates' : 'Your nominations'}</h3><span className="chip sm">{open ? 'Open' : cycle.skippedNominations ? 'Being chosen' : 'Closed'}</span></div>
+      <p className="muted small el-hint">{cycle.skippedNominations && !open ? 'The Electoral Committee is choosing the candidates for each office. They will appear here once published.'
+        : !canAct ? 'Old Members can follow the election but not nominate.'
+          : open ? 'For each office, choose one eligible member. You can change or withdraw your choice until nominations close.'
+            : 'Nominations are closed. The Electoral Committee is confirming the candidates.'}</p>
+      {!(cycle.skippedNominations && !open) && (
+        <div className="grid g2">
+          {cycle.offices.map((o) => {
+            const options = (o.eligible || []).filter((m) => m.id !== me.id);
+            const mine = (o.eligible || []).find((m) => m.id === o.myNomination);
+            return (
+              <div className="el-office" key={o.name}>
+                <div className="nom-h"><h4>{o.name}</h4>{(mine || (o.myNomination && !open)) && <span className="chip sm ok"><Icon name="check" size={11} /> Nominated</span>}</div>
+                {open && canAct ? (
+                  <div className="el-office-add">
+                    <select className="input sm" value={o.myNomination || ''} aria-label={`Nominate for ${o.name}`} onChange={(e) => e.target.value && nominate(o.name, e.target.value)}>
+                      <option value="">Choose a nominee…</option>
+                      {options.map((m) => <option key={m.id} value={m.id}>{m.name}{m.part ? ` · ${m.part}` : ''}</option>)}
+                    </select>
+                    {mine && <button className="btn btn-sm btn-ghost" onClick={() => nominate(o.name, null)}>Withdraw</button>}
+                  </div>
+                ) : <p className="small">{mine ? <>You nominated <b>{mine.name}</b>.</> : o.myNomination ? 'You made a nomination.' : <span className="muted">No nomination from you.</span>}</p>}
+                {open && <p className="muted tiny">{(o.eligible || []).length} eligible: {(o.eligible || []).map((m) => m.name).join(', ')}</p>}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-/* ---- Member nomination suggestion form ---- */
-function SuggestNom({ ctx }) {
-  const { me, users, members = [], pendingNoms = [], setPendingNoms, log, toast, notify } = ctx;
-  const [post, setPost] = useState(POSTS[0]);
-  const [cand, setCand] = useState('');
-  const submit = () => {
-    if (!cand) return toast('Choose a member to nominate', 'err');
-    if (pendingNoms.some((s) => s.post === post && s.cand === cand)) return toast('That nomination has already been suggested', 'err');
-    setPendingNoms((p) => [...p, { id: uid('pn'), post, cand, by: me.name }]);
-    log('NOM_SUGGEST', `Suggested ${users.find((u) => u.id === cand)?.name} for ${post}`);
-    notify(`New nomination suggestion for ${post}`);
-    toast('Suggestion sent to the Electoral Committee');
-    setCand('');
-  };
+/* ---------- Members: the ballot ---------- */
+function BallotPanel({ cycle, canAct, vote, voters }) {
+  const [pick, setPick] = useState({});
+  const { stage, runoff } = cycle;
+  const open = cycle.offices.filter((o) => !o.settled);
+  const decided = cycle.offices.filter((o) => o.settled);
+  const done = open.filter((o) => o.myVote).length;
   return (
-    <div className="nom-suggest">
-      <select className="input sm" value={post} onChange={(e) => setPost(e.target.value)}>{POSTS.map((p) => <option key={p}>{p}</option>)}</select>
-      <select className="input sm" value={cand} onChange={(e) => setCand(e.target.value)}><option value="">Choose member…</option>{members.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
-      <button className="btn btn-sm btn-pri" onClick={submit}>Submit</button>
+    <div className="card">
+      <div className="card-h">
+        <h3>{stage === 'ballot' ? (runoff ? 'Run-off candidates' : 'The candidates') : runoff ? 'Run-off ballot' : 'Your ballot'}</h3>
+        {stage === 'live' && <span className="status-badge live"><span className="live-dot" />LIVE</span>}
+        {stage === 'closed' && <span className="chip sm">Voting closed</span>}
+      </div>
+      <p className="muted small el-hint">
+        {runoff && stage !== 'closed' ? 'There was a tie. Vote again, only between the tied candidates. ' : ''}
+        {stage === 'ballot' ? 'Voting opens when the Electoral Committee goes live. You will be notified.'
+          : stage === 'closed' ? 'Voting has closed. The results will appear here once the committee publishes them.'
+            : !canAct ? 'Old Members can follow the election but not vote.'
+              : `Your ballot is secret — vote once for each office. ${done} of ${open.length} done.`}
+      </p>
+      <div className="stack">
+        {open.map((o) => {
+          const voted = (o.candidates || []).find((m) => m.id === o.myVote);
+          return (
+            <div className="el-ballot" key={o.name}>
+              <div className="nom-h"><h4>{o.name}{o.round > 1 && <span className="chip sm warn el-round">Run-off</span>}</h4>{stage !== 'ballot' && <span className="muted tiny">{o.turnout || 0}{voters ? ` of ${voters}` : ''} voted</span>}</div>
+              {voted ? <div className="voted-note"><Icon name="check" size={14} /> You voted for <b>{voted.name}</b></div>
+                : stage === 'live' && canAct ? (<>
+                  <div className="stack sm-gap">
+                    {(o.candidates || []).map((m) => (
+                      <button key={m.id} className={`cand-row ${pick[o.name] === m.id ? 'sel' : ''}`} onClick={() => setPick((p) => ({ ...p, [o.name]: m.id }))}>
+                        <Avatar user={{ name: m.name }} size={32} />
+                        <div style={{ flex: 1, textAlign: 'left', minWidth: 0 }}><b>{m.name}</b>{m.part && <div className="muted tiny">{m.part}</div>}</div>
+                        <span className={`radio ${pick[o.name] === m.id ? 'sel' : ''}`} />
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn btn-pri el-cast" disabled={!pick[o.name]} onClick={() => vote(o.name, pick[o.name])}><Icon name="vote" size={15} /> Cast vote for {o.name}</button>
+                </>) : (
+                  <div className="nom-grid">{(o.candidates || []).map((m) => <span key={m.id} className="nom-chip"><span className="nom-name">{m.name}</span></span>)}</div>
+                )}
+            </div>
+          );
+        })}
+        {decided.length > 0 && <p className="muted small">Already decided in the first round: {decided.map((o) => o.name).join(', ')}. Their results are published with the others.</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Results (live for the committee; final for everyone once published) ---------- */
+function ResultsPanel({ offices, title, date, live, voters, embedded }) {
+  const body = (
+    <div className="grid g2">
+      {offices.map((o) => {
+        const res = o.results || [];
+        const total = res.reduce((a, r) => a + r.votes, 0);
+        const max = Math.max(0, ...res.map((r) => r.votes));
+        const leaders = res.filter((r) => max > 0 && r.votes === max);
+        const tie = leaders.length > 1;
+        return (
+          <div className="el-office" key={o.name}>
+            <div className="nom-h"><h4>{o.name}{o.rounds?.length > 0 && <span className="chip sm el-round">Run-off</span>}</h4><span className="muted tiny">{total} vote{total === 1 ? '' : 's'}{voters ? ` · ${Math.round((total / voters) * 100)}% turnout` : ''}</span></div>
+            {!live && tie && <div className="voted-note warn"><Icon name="vote" size={14} /> Tie between {leaders.map((r) => r.name).join(' and ')}{embedded ? '' : ' — the Electoral Committee decides the next step'}.</div>}
+            <div className="res-list">
+              {res.map((r) => {
+                const pct = total ? Math.round((r.votes / total) * 100) : 0;
+                const win = !live && !tie && leaders[0]?.id === r.id;
+                const lead = live && leaders.some((l) => l.id === r.id);
+                return (
+                  <div className="res-row" key={r.id}>
+                    <span className="res-name">{r.name} {win && <span className="win-tag">🏆 Elected</span>}{lead && <span className="win-tag lead">Leading</span>}</span>
+                    <div className="res-track"><motion.div className="res-fill" initial={false} animate={{ width: `${pct}%` }} transition={{ duration: 0.4 }} style={{ background: win ? '#059669' : '#d18f26' }} /></div>
+                    <span className="res-num">{r.votes} · {pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+            {(o.rounds || []).map((r) => (
+              <p key={r.round} className="muted tiny el-earlier">Round {r.round} (tied): {r.results.map((x) => `${x.name} ${x.votes}`).join(' · ')}</p>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+  if (embedded) return <div className="stack sm-gap">{live && <p className="el-live-note"><span className="live-dot" /> Live — only the committee, the President and admins see these numbers</p>}{body}</div>;
+  return (
+    <div className="card">
+      <div className="card-h"><h3>{title}</h3>{date && <span className="muted tiny">{fmtDate(String(date).slice(0, 10))}</span>}</div>
+      {body}
+    </div>
+  );
+}
+
+/* ---------- Who is on the Electoral Committee ---------- */
+function CommitteeTab({ committee, members, canAppoint, appoint, remove, cycle }) {
+  const [pick, setPick] = useState('');
+  const options = useMemo(() => members.filter((m) => !m.roles.includes('electoral')).sort((a, b) => a.name.localeCompare(b.name)), [members]);
+  const running = cycle && !['setup', 'published'].includes(cycle.stage);
+  return (
+    <div className="card">
+      <div className="card-h"><h3>Electoral Committee</h3><span className="chip sm">{committee.length} member{committee.length === 1 ? '' : 's'}</span></div>
+      <p className="muted small el-hint">The committee chooses the offices and who is eligible, runs nominations, confirms the candidates, and with the President takes the vote live and publishes the results. Committee members can vote but can't be nominated.{canAppoint ? ' The President and admins appoint the committee.' : ''}</p>
+      <div className="stack sm-gap">
+        {committee.map((u) => (
+          <div className="el-member" key={u.id}>
+            <Avatar user={u} size={34} />
+            <div style={{ flex: 1, minWidth: 0 }}><b>{u.name}</b><div className="muted tiny">{u.voice || 'Member'}</div></div>
+            {canAppoint && <button className="btn btn-sm btn-danger-soft" onClick={() => remove(u)}>Remove</button>}
+          </div>
+        ))}
+        {!committee.length && <p className="muted small">Nobody is on the committee yet.</p>}
+      </div>
+      {canAppoint && (
+        <div className="el-start-row el-appoint">
+          <select className="input" value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Choose a member to appoint">
+            <option value="">Choose a member to appoint…</option>
+            {options.map((m) => <option key={m.id} value={m.id}>{m.name}{m.voice ? ` · ${m.voice}` : ''}</option>)}
+          </select>
+          <button className="btn btn-pri" disabled={!pick} onClick={() => { const u = members.find((m) => m.id === pick); if (u) { appoint(u); setPick(''); } }}><Icon name="plus" size={14} /> Appoint</button>
+        </div>
+      )}
+      {canAppoint && running && <p className="muted tiny">An election is in progress: anyone you appoint now is taken off its eligibility lists the next time the committee saves them.</p>}
+    </div>
+  );
+}
+
+/* ---------- A short guide for the committee ---------- */
+function Guide() {
+  const steps = [
+    ['Practise first', 'New to this? Press "Run a practice election". It works exactly like a real one, is marked Practice everywhere, and is deleted when you end it.'],
+    ['1 · Offices & eligibility', 'Add the offices up for election from the dropdown. For each, add the eligible members (or "All members"). Each office needs at least 2. Members see nothing yet.'],
+    ['2 · Nominations (optional)', 'Publish for nominations: members pick one eligible person per office. You see the counts and who nominated whom, live. Or press "Skip nominations" to choose the candidates yourselves.'],
+    ['3 · Candidates', 'Close nominations. Everyone nominated is ticked for you — untick or tick any eligible member. Each office needs at least 2 candidates. Then publish the candidates.'],
+    ['4 · Go live', 'When the choir is ready, the committee, the President or an admin presses Go live. Members are notified and vote once per office; ballots are secret.'],
+    ['5 · Count', 'Close voting. Only the committee, the President and admins see the numbers (they update live while voting is open).'],
+    ['6 · Ties', 'If the top candidates are level, press "Hold a run-off". Only the tied offices vote again, between the tied candidates; other offices keep their result. Go live again, then close.'],
+    ['7 · Publish', 'Publish the results — every member sees the winners. Starting the next election moves these results to History.'],
+  ];
+  const rules = [
+    'Committee members can vote but can\'t be eligible or nominated — the committee is neutral.',
+    'Old Members can follow the election but can\'t nominate or vote.',
+    'Nobody — not even admins — can see who voted for whom. Only totals are counted.',
+    'An election can be cancelled before voting starts; after that it must be finished. A practice can be ended at any time.',
+    'Every step is recorded with who took it, in the Security log.',
+  ];
+  return (
+    <div className="card el-guide">
+      <div className="card-h"><h3>Election guide</h3><span className="chip sm">For the committee</span></div>
+      <ol className="el-guide-steps">{steps.map(([h, t]) => <li key={h}><b>{h}</b><span>{t}</span></li>)}</ol>
+      <h4>Good to know</h4>
+      <ul className="el-guide-rules">{rules.map((r) => <li key={r}>{r}</li>)}</ul>
     </div>
   );
 }

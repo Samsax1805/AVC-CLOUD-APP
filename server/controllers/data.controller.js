@@ -48,6 +48,7 @@ exports.getAll = async (req, res) => {
       out[key] = docs.map(({ _id, __v, createdAt, updatedAt, ...rest }) => ({ ...rest, id: rest.uid }));
     }
     out.elections = await elections.listFor(req.user.id); // vote totals only, never who chose whom
+    out.electionStatus = await require('./electionCycle.controller').status(req.user.roles || []);
     const misc = await R.Misc.find().lean();
     misc.forEach((m) => { out[m.key] = m.data; });
     out.nominations = out.nominations || {};
@@ -72,33 +73,7 @@ exports.getAll = async (req, res) => {
 const OFFICERS = ['admin', 'president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral'];
 const MAX_DELETES_PER_SAVE = 3;
 
-// Polls: the Electoral Committee (and admins) create, edit and delete them; only the President
-// (or an admin) takes one live; votes are never written here — only POST /api/elections/:id/vote counts them.
-const COMMITTEE = ['admin', 'electoral'];
-const GO_LIVE = ['admin', 'president'];
-const saveElection = async (item, roles) => {
-  const has = (list) => !roles.includes('alumni') && roles.some((r) => list.includes(r));
-  const id = item.id || item.uid;
-  const existing = await R.Election.findOne({ uid: id }).lean();
-  if (!existing) {
-    if (!has(COMMITTEE)) return;
-    const candidateIds = [...new Set(item.candidateIds || [])];
-    await R.Election.create({
-      uid: id, post: item.post, candidateIds, status: 'draft', created: item.created,
-      votes: Object.fromEntries(candidateIds.map((c) => [c, 0])), votedIds: [],
-    });
-    return;
-  }
-  const $set = {};
-  if (existing.status === 'draft' && has(COMMITTEE)) {
-    if (item.post) $set.post = item.post;
-    if (Array.isArray(item.candidateIds)) $set.candidateIds = [...new Set(item.candidateIds)];
-  }
-  const next = item.status;
-  if (next === 'live' && existing.status === 'draft' && has(GO_LIVE)) $set.status = 'live';
-  if (next === 'closed' && existing.status === 'live' && has([...COMMITTEE, ...GO_LIVE])) { $set.status = 'closed'; $set.closed = item.closed; }
-  if (Object.keys($set).length) await R.Election.updateOne({ uid: id }, { $set });
-};
+// Elections run through /api/elections (electionCycle.controller.js); old poll records here are read-only history.
 
 exports.putAll = async (req, res) => {
   try {
@@ -113,12 +88,12 @@ exports.putAll = async (req, res) => {
       const ids = body[key].map((item) => item && (item.id || item.uid)).filter(Boolean);
       const existing = (await M.find({}, { uid: 1 }).lean()).map((d) => d.uid);
       // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
-      const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && String(id).startsWith('bday-')));
+      const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec)-/.test(String(id))));
       if (removed.length && isOfficer && removed.length > MAX_DELETES_PER_SAVE) {
         console.warn(`PUT /data refused: would delete ${removed.length} ${key} (user ${req.user.id})`);
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
       }
-      const mayDelete = key === 'elections' ? actorRoles.some((r) => COMMITTEE.includes(r)) && !actorRoles.includes('alumni') : isOfficer;
+      const mayDelete = key === 'elections' ? false : isOfficer;
       plan.push({ key, M, items: body[key], removed: mayDelete ? removed : [] });
     }
     for (const key of ['roleHistory', 'nominations']) {
@@ -133,7 +108,7 @@ exports.putAll = async (req, res) => {
       for (const item of items) {
         const id = item && (item.id || item.uid);
         if (!id) continue;
-        if (key === 'elections') { await saveElection(item, actorRoles); continue; }
+        if (key === 'elections') continue; // elections run through /api/elections now
         const { id: _drop, ...rest } = item;
         await M.updateOne({ uid: id }, { $set: { ...rest, uid: id } }, { upsert: true });
       }

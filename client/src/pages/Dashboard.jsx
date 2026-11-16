@@ -26,13 +26,13 @@ const useNarrow = () => {
 
 export default function Dashboard({ ctx }) {
   const {
-    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], audit = [], elections = [],
+    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], audit = [], electionStatus = null,
     minutes = [], probations = [], duesSettings = [], pendingUsers = [], announcements = [], setPage,
   } = ctx || {};
 
   const narrow = useNarrow();
   const chartH = narrow ? 170 : 220;
-  const liveE = elections.find((e) => e.status === 'live');
+  const es = electionStatus;
   const outstanding = debts.reduce((a, d) => a + (d.amount - d.paid), 0);
   const myOut = debts.filter((d) => d.memberId === me.id).reduce((a, d) => a + (d.amount - d.paid), 0);
 
@@ -62,23 +62,25 @@ export default function Dashboard({ ctx }) {
   if (PERMS.manageProbation(me)) cards.push({ icon: 'clock', label: 'On probation', value: probations.filter((p) => p.status === 'active').length, tone: '#b45309' });
   if (PERMS.manageSongs(me)) cards.push({ icon: 'music', label: 'Songs in library', value: songs.length, tone: '#7c3aed' });
   if (PERMS.manageMinutes(me)) cards.push({ icon: 'file', label: 'Minutes published', value: minutes.length, tone: '#0284c7' });
-  if (PERMS.manageElections(me)) cards.push({ icon: 'vote', label: 'Live polls', value: elections.filter((e) => e.status === 'live').length, tone: '#4f46e5' });
+  if (PERMS.manageElections(me)) cards.push({ icon: 'vote', label: 'Election', value: es ? es.label : 'None', sub: es?.title, tone: '#4f46e5' });
   if (!cards.length) {
     const mine = sessions.map((s) => (s.records || {})[me.id]).filter(Boolean);
     cards.push({ icon: 'check', label: 'My attendance rate', value: (mine.length ? Math.round((mine.filter((v) => v === 'present').length / mine.length) * 100) : 0) + '%', sub: mine.length ? `${mine.length} sessions` : 'no sessions yet', tone: '#059669' });
     cards.push({ icon: 'coins', label: 'My outstanding debt', value: naira(myOut), tone: '#e11d48' });
     cards.push({ icon: 'music', label: 'Songs available', value: songs.length, tone: '#7c3aed' });
-    cards.push({ icon: 'vote', label: 'Live elections', value: elections.filter((e) => e.status === 'live').length, tone: '#4f46e5' });
+    cards.push({ icon: 'vote', label: 'Election', value: es ? es.label : 'None', sub: es?.title, tone: '#4f46e5' });
   }
 
   return (
     <div className="stack dash">
       <BirthdayBanner users={users} me={me} />
 
-      {liveE && participates(me) && !liveE.choice?.[me.id] && (
+      {es && participates(me) && ['live', 'nominations', 'published'].includes(es.stage) && (
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="banner">
-          <span className="live-dot" /> Voting is <b>live</b> for the <b>{liveE.post}</b> post — your voice counts!
-          <button className="btn btn-sm btn-white" onClick={() => setPage('elections')}>Vote now →</button>
+          {es.mock && <b>Practice · </b>}
+          {es.stage === 'live' ? <><span className="live-dot" /> Voting is <b>live</b> — {es.title}. Your voice counts!</>
+            : es.stage === 'nominations' ? <>🗳️ Nominations are open — {es.title}.</> : <>🏆 The results of {es.title} are published.</>}
+          <button className="btn btn-sm btn-white" onClick={() => setPage('elections')}>{es.stage === 'live' ? 'Vote now →' : es.stage === 'nominations' ? 'Nominate →' : 'See results →'}</button>
         </motion.div>
       )}
 

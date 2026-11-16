@@ -18,6 +18,7 @@ const IP = {
   back: <polyline points="15 18 9 12 15 6" />,
   plus: <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>,
   x: <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>,
+  send: <><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></>,
   play: <path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none" />,
   pause: <><rect x="5" y="4" width="4.5" height="16" rx="1" fill="currentColor" stroke="none" /><rect x="14.5" y="4" width="4.5" height="16" rx="1" fill="currentColor" stroke="none" /></>,
   upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></>,
