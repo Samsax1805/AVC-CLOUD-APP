@@ -56,6 +56,7 @@ export const DataProvider = ({ children }) => {
   const [probations, setProbations] = useState([]);
   const [notifs, setNotifs] = useState([]);
   const [pendingNoms, setPendingNoms] = useState([]);
+  const [financeStatus, setFinanceStatus] = useState(null); // months waiting for this person (Finance Reports)
   const [electionStatus, setElectionStatus] = useState(null); // read-only: elections run through /api/elections
   const [playId, setPlayId] = useState(null);
   const [playProg, setPlayProg] = useState(0);
@@ -102,6 +103,7 @@ export const DataProvider = ({ children }) => {
         setDuesSettings(data.duesSettings || []); setAnnouncements(newestFirst(data.announcements, 'date')); setDocuments(data.documents || []);
         setProbations(data.probations || []); setNotifs(newestFirst(data.notifs, 'date')); setPendingNoms(data.pendingNoms || []);
         setElectionStatus(data.electionStatus || null);
+        setFinanceStatus(data.financeStatus || null);
         loadOk.current = true;
       })
       .catch((err) => {
@@ -190,7 +192,7 @@ export const DataProvider = ({ children }) => {
 
   const retryLoad = () => setLoadAttempt((n) => n + 1);
 
-  const value = { electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

@@ -22,6 +22,7 @@ import DocumentsPage from '../pages/Documents';
 import ProbationPage from '../pages/Probation';
 import SecurityPage from '../pages/Security';
 import PsalmistsPage from '../pages/Psalmists';
+import FinancePage from '../pages/Finance';
 import DutyChat from './DutyChat';
 import LiveUpdates from './LiveUpdates';
 
@@ -67,6 +68,7 @@ export default function AppShell() {
       case 'attendance': return <AttendancePage ctx={ctx} />;
       case 'debts': return <DebtsPage ctx={ctx} />;
       case 'dues': return <DuesPage ctx={ctx} />;
+      case 'finance': return <FinancePage ctx={ctx} />;
       case 'elections': return <ElectionsPage ctx={ctx} />;
       case 'audit': return <AuditPage ctx={ctx} />;
       case 'psalmists': return <PsalmistsPage ctx={ctx} />;
@@ -96,6 +98,7 @@ export default function AppShell() {
                 <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { setSettingsTab('profile'); setPage(n.id); setSideOpen(false); }}>
                   <Icon name={n.icon} size={16} />
                   <span>{n.id === 'debts' ? (PERMS.manageDebts(me) ? 'Debt Tracker' : 'My Debts') : n.label}</span>
+                  {n.id === 'finance' && data.financeStatus?.waiting > 0 && <span className="nav-live" title="Months waiting for you">{data.financeStatus.waiting}</span>}
                   {n.id === 'elections' && electionBadge && <span className={`nav-live ${electionBadge === 'LIVE' ? '' : 'soft'}`}>{electionBadge}</span>}
                 </button>
               ))}

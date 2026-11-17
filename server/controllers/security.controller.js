@@ -6,7 +6,7 @@ const security = require('../services/security.service');
 const { sign } = require('../config/token');
 
 const VIEWERS = ['admin', 'president'];
-const OFFICER_ROLES = ['admin', 'president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral'];
+const OFFICER_ROLES = ['admin', 'president', 'secretary', 'finance', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral'];
 const canView = (req) => !(req.user.roles || []).includes('alumni') && (req.user.roles || []).some((r) => VIEWERS.includes(r));
 const signInMethods = (u) => [u.googleId && 'Google', u.passwordHash && 'Password'].filter(Boolean);
 const clean = ({ _id, __v, ...e }) => ({ id: _id.toString(), ...e });

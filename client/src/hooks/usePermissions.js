@@ -2,6 +2,7 @@ export const ROLES = {
   admin: { label: 'Admin', color: '#b45309', bg: '#fef3c7', desc: 'Full system control. Grants & revokes every privilege.' },
   president: { label: 'President', color: '#6d28d9', bg: '#ede9fe', desc: 'Second-in-command. Approvals, roles, dues, audit.' },
   secretary: { label: 'Secretary', color: '#0369a1', bg: '#e0f2fe', desc: 'Minutes, receipts, documents & announcements.' },
+  finance: { label: 'Finance Secretary', color: '#0f766e', bg: '#ccfbf1', desc: 'Keeps the choir accounts. Prepares each month\'s financial report for the Secretary to review and publish.' },
   provost: { label: 'Provost', color: '#047857', bg: '#d1fae5', desc: 'Attendance, absence/lateness debts, probation.' },
   pro: { label: 'PRO', color: '#a16207', bg: '#fef9c3', desc: 'Public Relations Officer. Adds new members and sets the part each member sings.' },
   choirmaster: { label: 'Choir Master', color: '#9d174d', bg: '#fce7f3', desc: 'Leads the music. Plans the responsorial psalmist roster and publishes it.' },
@@ -11,7 +12,7 @@ export const ROLES = {
   member: { label: 'Member', color: '#475569', bg: '#f1f5f9', desc: 'Chorister. Votes when elections are live.' },
   alumni: { label: 'Old Member', color: '#7c6f57', bg: '#efe9dd', desc: 'Former chorister. View-only: notifications and updates, no attendance, dues or elections.' },
 };
-export const GRANTABLE = ['president', 'secretary', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
+export const GRANTABLE = ['president', 'secretary', 'finance', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
 export const rolesOf = (u) => (u.roles.length ? u.roles : ['member']);
 export const isAlumni = (u) => !!u && (u.roles || []).includes('alumni');
 // Old Members hold no privileges, even if an old role was left behind
@@ -41,6 +42,8 @@ export const PERMS = {
   manageDocuments: (u) => hasAny(u, ['admin', 'president', 'secretary']),
   manageProbation: (u) => hasAny(u, ['admin', 'president', 'provost']),
   manageDuesSettings: (u) => hasAny(u, ['admin', 'president']),
+  prepareFinance: (u) => hasAny(u, ['admin', 'finance']),
+  reviewFinance: (u) => hasAny(u, ['admin', 'president', 'secretary']),
 };
 export const ACT_META = {
   AUTH: { l: 'Sign-in', c: '#64748b' }, ROLE_GRANTED: { l: 'Role granted', c: '#f59e0b' }, ROLE_REVOKED: { l: 'Role revoked', c: '#ef4444' },
@@ -67,6 +70,7 @@ export const NAV_DEFS = [
   { id: 'attendance', label: 'Attendance', icon: 'check', sec: 'Records' },
   { id: 'debts', label: 'Debts & Accounts', icon: 'coins', sec: 'Records' },
   { id: 'dues', label: 'Dues Records', icon: 'dollar', sec: 'Records' },
+  { id: 'finance', label: 'Finance Reports', icon: 'chart', sec: 'Records' },
   { id: 'probation', label: 'Probation', icon: 'clock', sec: 'Operations' },
   { id: 'elections', label: 'Elections', icon: 'vote', sec: 'Governance' },
   { id: 'audit', label: 'Audit Log', icon: 'shield', sec: 'Governance' },
@@ -79,5 +83,6 @@ export const visibleNav = (me) => NAV_DEFS.filter((n) => {
   if (n.id === 'audit') return PERMS.viewAudit(me);
   if (n.id === 'members') return PERMS.manageMembers(me) || PERMS.approveMembers(me) || PERMS.addMembers(me);
   if (n.id === 'probation') return PERMS.manageProbation(me);
+  if (n.id === 'finance') return !isAlumni(me);
   return true;
 });

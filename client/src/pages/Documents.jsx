@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import api from '../services/api';
+import { monthLabel } from '../utils/financeMath';
 import { TODAY, uid, fmtDate } from '../utils/helpers';
 import { PERMS, rolesOf, ROLES } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
@@ -18,7 +20,20 @@ export default function DocumentsPage({ ctx }) {
   const [form, setForm] = useState(blank);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
-  const list = documents.filter((d) => cat === 'All' || d.category === cat);
+  // Published monthly financial reports live in Finance Reports; they are listed here too, with a PDF download
+  const [reports, setReports] = useState([]);
+  useEffect(() => { api.get('/finance/published').then(({ data }) => setReports(data.reports || [])).catch(() => {}); }, []);
+  const finRows = reports.map((r) => ({
+    id: `fin-${r.id}`, finId: r.id, title: `Financial Report — ${monthLabel(r.month)}`, category: 'Financial', version: 'Published',
+    date: String(r.publishedAt || '').slice(0, 10), desc: `${r.book} · prepared by ${r.preparedByName || 'the Finance Secretary'}`, publishedByName: r.publishedByName,
+  }));
+  const list = [...documents, ...finRows].filter((d) => cat === 'All' || d.category === cat).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const financePdf = async (d) => {
+    try {
+      const [{ data }, { financePdf: make }] = await Promise.all([api.get(`/finance/sheets/${d.finId}`), import('../utils/financePdf')]);
+      await make({ book: data.book, sheet: data.sheet, report: data.report, history: data.history, ytd: data.ytd });
+    } catch (e) { toast(e?.response?.data?.msg || 'The PDF could not be made', 'err'); }
+  };
   const constitution = documents.filter((d) => d.category === 'Constitution').sort((a, b) => (a.date < b.date ? 1 : -1));
   const paged = usePaged(list, 10, cat);
   const versionsPaged = usePaged(constitution, 5);
@@ -31,7 +46,7 @@ export default function DocumentsPage({ ctx }) {
     setFile(f);
     setForm((x) => ({ ...x, title: x.title || f.name.replace(/\.[^.]+$/, '') }));
   };
-  const download = (d) => (d.fileUrl
+  const download = (d) => (d.finId ? financePdf(d) : d.fileUrl
     ? openFile(d.fileUrl, d.fileName).catch((e) => toast(e.message, 'err'))
     : toast('No file was attached to this record — it was added before uploads were stored', 'err'));
   const save = async () => {
@@ -81,9 +96,9 @@ export default function DocumentsPage({ ctx }) {
                   <td><b>{d.title}</b><div className="muted tiny">{d.desc}</div></td>
                   <td><span className="chip sm">{d.category}</span></td>
                   <td>{d.version}</td>
-                  <td className="muted">{by?.name} <span className="act-tag" style={{ background: '#0d94881a', color: '#0d9488' }}>{d.roleAtTime}</span></td>
+                  <td className="muted">{d.finId ? <>{d.publishedByName} <span className="act-tag" style={{ background: '#0f766e1a', color: '#0f766e' }}>Published</span></> : <>{by?.name} <span className="act-tag" style={{ background: '#0d94881a', color: '#0d9488' }}>{d.roleAtTime}</span></>}</td>
                   <td className="muted">{fmtDate(d.date)}</td>
-                  <td className="r"><button className="btn btn-sm btn-soft" onClick={() => download(d)}>{d.fileUrl ? 'Open' : 'No file'}</button>{d.size && <div className="muted tiny">{d.size}</div>}</td>
+                  <td className="r"><button className="btn btn-sm btn-soft" onClick={() => download(d)}>{d.finId ? 'PDF' : d.fileUrl ? 'Open' : 'No file'}</button>{d.size && <div className="muted tiny">{d.size}</div>}</td>
                 </tr>
               );
             })}
