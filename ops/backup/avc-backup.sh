@@ -1,7 +1,7 @@
 #!/bin/bash
 # Nightly AVC database backup (Atlas free tier has no backups of its own).
 #  1. mongodump the whole database to a compressed archive on this server (kept 14 days)
-#  2. copy it to the private S3 bucket under backups/ (kept 90 days), so a lost server loses nothing
+#  2. copy it to the private S3 bucket under files/db-backups/ (kept 90 days), so a lost server loses nothing
 #  3. if anything fails, every admin gets an email
 # Installed as /home/ubuntu/avc-backup.sh; cron runs it at 02:00 UTC.
 set -euo pipefail
