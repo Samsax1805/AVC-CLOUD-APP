@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 // One election from start to finish, run by the Electoral Committee:
 //   setup       committee picks the offices and who is eligible for each (members can't see it yet)
 //   nominations published: members nominate eligible members for each office
+//               members may also volunteer themselves for an office
 //               (the committee may skip this and choose the candidates straight from the eligible list)
 //   review      committee picks the final candidates
 //   ballot      candidates published; waiting for the go-live button
@@ -37,6 +38,13 @@ const Nomination = new mongoose.Schema({
   at: Date,
 }, { _id: false });
 
+// A member putting themselves forward for an office while nominations are open
+const Volunteer = new mongoose.Schema({
+  office: String,
+  userId: String,
+  at: Date,
+}, { _id: false });
+
 const ElectionCycle = new mongoose.Schema({
   title: { type: String, required: true },
   mock: { type: Boolean, default: false },
@@ -45,6 +53,7 @@ const ElectionCycle = new mongoose.Schema({
   runoff: { type: Number, default: 0 }, // 0 = first round; 2, 3… = run-off round in progress or done
   offices: [Office],
   nominations: [Nomination],
+  volunteers: [Volunteer],
   // When each stage began and who moved it there
   history: [{ _id: false, stage: String, note: String, at: Date, byId: String, byName: String }],
   createdById: String,

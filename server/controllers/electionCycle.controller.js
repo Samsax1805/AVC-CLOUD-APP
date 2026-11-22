@@ -48,8 +48,8 @@ const directory = async () => {
   const list = await roster();
   const byId = new Map(list.map((u) => [u.id, u]));
   const who = (id) => { const u = byId.get(id); return { id, name: u?.name || 'Former member', part: u?.part || '' }; };
-  // Who may be put forward: active, not Old Members, not on the Electoral Committee (it runs the election)
-  const pool = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni') && !u.roles.includes('electoral'))
+  // Who may be put forward: every active member who is not an Old Member (the Electoral Committee too)
+  const pool = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni'))
     .map(({ id, name, part }) => ({ id, name, part })).sort((a, b) => a.name.localeCompare(b.name));
   const voters = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni')).length;
   return { who, pool, voters };
@@ -94,6 +94,12 @@ const view = async (cycle, user, dir) => {
         ...(p.committee ? { by: by.map((b) => who(b).name).sort() } : {}),
       })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     }
+    // Who has put themselves forward: everyone sees it while nominations are open, the committee until the ballot
+    if (stage === 'nominations' || (p.oversee && stage === 'review')) {
+      out.volunteers = (cycle.volunteers || []).filter((v) => v.office === o.name)
+        .map((v) => ({ ...who(v.userId), eligible: o.eligibleIds.includes(v.userId) })).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if ((cycle.volunteers || []).some((v) => v.office === o.name && v.userId === user.id)) out.iVolunteered = true;
     if (VOTING.includes(stage)) out.turnout = turnout[o.name] || 0;
     if (showResults) {
       out.results = results(o, votes, who);
@@ -123,7 +129,7 @@ exports.current = async (req, res) => {
     perms: p,
     cycle: visible ? await view(cycle, req.user, dir) : null,
     preparing: !!cycle && !visible ? (cycle.mock ? 'practice' : 'real') : null,
-    pool: p.committee && cycle && ['setup', 'nominations'].includes(cycle.stage) ? dir.pool : [],
+    pool: p.committee && cycle && ['setup', 'nominations', 'review'].includes(cycle.stage) ? dir.pool : [],
     logCount: p.admin ? await electionLogCount() : undefined,
     voters: dir.voters,
   });
@@ -208,20 +214,30 @@ exports.offices = async (req, res) => {
   cycle.offices = offices;
   // Nominations for an office or member that is no longer on the list fall away
   cycle.nominations = cycle.nominations.filter((n) => offices.some((o) => o.name === n.office && o.eligibleIds.includes(n.nomineeId)));
+  // A volunteer stays while the office exists (the committee may still add them to the eligible list)
+  cycle.volunteers = (cycle.volunteers || []).filter((v) => offices.some((o) => o.name === v.office) && allowed.has(v.userId));
   await cycle.save();
   log(req, cycle, `Offices and eligibility updated: ${offices.map((o) => `${o.name} (${o.eligibleIds.length})`).join(', ') || 'none'}`).catch(() => {});
   res.json({ ok: true, cycle: await view(cycle, req.user, dir) });
 };
 
-// PUT /api/elections/current/candidates { office, candidateIds } — while the committee chooses the candidates
+// PUT /api/elections/current/candidates { office, candidateIds } — while the committee chooses the candidates.
+// The committee may add any member who can stand; they are made eligible for that office too.
 exports.candidates = async (req, res) => {
   if (!perms(req.user.roles).committee) return res.status(403).json({ msg: 'Only the Electoral Committee or an admin can choose the candidates' });
-  const cycle = await load(res); if (!cycle) return;
+  const [cycle, dir] = await Promise.all([load(res), directory()]);
+  if (!cycle) return;
   if (cycle.stage !== 'review') return res.status(400).json({ msg: 'Close nominations (or skip them) before choosing the candidates' });
   const office = cycle.offices.find((o) => o.name === req.body?.office);
   if (!office) return res.status(404).json({ msg: 'Office not found' });
   const ids = [...new Set((req.body?.candidateIds || []).map(String))];
-  if (!ids.every((id) => office.eligibleIds.includes(id))) return res.status(400).json({ msg: 'Candidates must be eligible for this office' });
+  const canStand = new Set(dir.pool.map((m) => m.id));
+  const added = ids.filter((id) => !office.eligibleIds.includes(id));
+  if (!added.every((id) => canStand.has(id))) return res.status(400).json({ msg: 'Old Members and members who have left cannot be candidates' });
+  if (added.length) {
+    office.eligibleIds = [...office.eligibleIds, ...added];
+    log(req, cycle, `${office.name}: committee added ${added.map((id) => dir.who(id).name).join(', ')} as candidate${added.length === 1 ? '' : 's'}`).catch(() => {});
+  }
   office.candidateIds = ids;
   await cycle.save();
   reply(req, res, cycle);
@@ -254,8 +270,12 @@ exports.stage = async (req, res) => {
   }
   if (from === 'review' && to === 'nominations') set.skippedNominations = false;
   if (to === 'review' && from === 'nominations') {
-    // Start the candidate list from everyone who was nominated; the committee can change it
-    for (const o of cycle.offices) if (!o.candidateIds.length) o.candidateIds = [...new Set(cycle.nominations.filter((n) => n.office === o.name).map((n) => n.nomineeId))];
+    // Start the candidate list from everyone nominated and every eligible volunteer; the committee can change it
+    for (const o of cycle.offices) {
+      if (o.candidateIds.length) continue;
+      const vols = (cycle.volunteers || []).filter((v) => v.office === o.name && o.eligibleIds.includes(v.userId)).map((v) => v.userId);
+      o.candidateIds = [...new Set([...cycle.nominations.filter((n) => n.office === o.name).map((n) => n.nomineeId), ...vols])];
+    }
     set.offices = cycle.offices;
   }
   if (to === 'ballot') {
@@ -344,6 +364,31 @@ exports.nominate = async (req, res) => {
     : pulled;
   if (!updated) return res.status(409).json({ msg: 'Nominations have just closed' });
   reply(req, res, updated);
+};
+
+// POST /api/elections/current/volunteer { office, on } — a member puts themselves forward for an office
+// (or withdraws) while nominations are open. If they are not on that office's eligible list, the committee decides.
+exports.volunteer = async (req, res) => {
+  if (!perms(req.user.roles).vote) return res.status(403).json({ msg: 'Old Members can follow elections but not stand' });
+  const [cycle, dir] = await Promise.all([load(res), directory()]);
+  if (!cycle) return;
+  if (cycle.stage !== 'nominations') return res.status(400).json({ msg: 'Volunteering is open only while nominations are open' });
+  const office = cycle.offices.find((o) => o.name === req.body?.office);
+  if (!office) return res.status(404).json({ msg: 'Office not found' });
+  if (!dir.pool.some((m) => m.id === req.user.id)) return res.status(403).json({ msg: 'Only active members can stand for an office' });
+  const on = req.body?.on !== false;
+  const pulled = await Cycle.findOneAndUpdate(
+    { _id: cycle._id, stage: 'nominations' },
+    { $pull: { volunteers: { office: office.name, userId: req.user.id } } },
+    { new: true },
+  );
+  if (!pulled) return res.status(409).json({ msg: 'Nominations have just closed' });
+  const updated = on
+    ? await Cycle.findOneAndUpdate({ _id: cycle._id, stage: 'nominations' }, { $push: { volunteers: { office: office.name, userId: req.user.id, at: new Date() } } }, { new: true })
+    : pulled;
+  if (!updated) return res.status(409).json({ msg: 'Nominations have just closed' });
+  log(req, updated, `${dir.who(req.user.id).name} ${on ? 'volunteered for' : 'withdrew from'} ${office.name}`).catch(() => {});
+  res.json({ ok: true, cycle: await view(updated, req.user, dir) });
 };
 
 // POST /api/elections/current/vote { office, candId } — one secret ballot per member per office and round

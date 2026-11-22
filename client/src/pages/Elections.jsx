@@ -93,8 +93,19 @@ export default function ElectionsPage({ ctx }) {
   const move = (to, done) => act(() => api.post('/elections/current/stage', { to }), done).then((ok) => { if (ok) log('ELECTION', done); setConfirm(null); });
   const runoff = () => act(() => api.post('/elections/current/runoff'), 'Run-off called — press Go live when members are ready').then((ok) => { if (ok) log('ELECTION', 'Run-off called'); setConfirm(null); });
   const saveOffices = (offices, done) => save((c) => ({ ...c, offices }), () => api.put('/elections/current/offices', { offices: offices.map((o) => ({ name: o.name, eligibleIds: o.eligible.map((m) => m.id) })) }), done);
-  const setCandidates = (office, ids) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, candidates: ids.map((id) => o.eligible.find((m) => m.id === id) || { id, name: '…' }) } : o)) }),
-    () => api.put('/elections/current/candidates', { office, candidateIds: ids }));
+  const setCandidates = (office, ids, done) => save((c) => ({
+    ...c,
+    offices: c.offices.map((o) => {
+      if (o.name !== office) return o;
+      const find = (id) => o.eligible.find((m) => m.id === id) || pool.find((m) => m.id === id) || { id, name: '…' };
+      const extra = ids.filter((id) => !o.eligible.some((m) => m.id === id)).map(find);
+      return { ...o, eligible: [...o.eligible, ...extra], candidates: ids.map(find) };
+    }),
+  }), () => api.put('/elections/current/candidates', { office, candidateIds: ids }), done);
+  // Make a volunteer eligible for the office they stood for (while nominations are open)
+  const acceptVolunteer = (office, m) => saveOffices(cycle.offices.map((o) => (o.name === office ? { ...o, eligible: [...o.eligible, { id: m.id, name: m.name, part: m.part }], volunteers: (o.volunteers || []).map((v) => (v.id === m.id ? { ...v, eligible: true } : v)) } : o)), `${m.name} can now be nominated for ${office}`);
+  const volunteer = (office, on) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, iVolunteered: on || undefined, volunteers: on ? [...(o.volunteers || []), { id: me.id, name: me.name, part: me.voice || '', eligible: (o.eligible || []).some((m) => m.id === me.id) }] : (o.volunteers || []).filter((v) => v.id !== me.id) } : o)) }),
+    () => api.post('/elections/current/volunteer', { office, on }), on ? `You are standing for ${office}` : `You withdrew from ${office}`);
   const nominate = (office, nomineeId) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, myNomination: nomineeId || undefined } : o)) }),
     () => api.post('/elections/current/nominations', { office, nomineeId }), nomineeId ? 'Nomination saved' : 'Nomination withdrawn');
   const vote = (office, candId) => save((c) => ({ ...c, offices: c.offices.map((o) => (o.name === office ? { ...o, myVote: candId, turnout: (o.turnout || 0) + 1 } : o)) }),
@@ -134,12 +145,12 @@ export default function ElectionsPage({ ctx }) {
 
             {perms.oversee && (
               <ManagePanel cycle={cycle} perms={perms} pool={pool} busy={busy} voters={voters}
-                saveOffices={saveOffices} setCandidates={setCandidates} openGuide={() => setTab('guide')}
+                saveOffices={saveOffices} setCandidates={setCandidates} acceptVolunteer={acceptVolunteer} openGuide={() => setTab('guide')}
                 ask={setConfirm} move={move} act={act} runoff={runoff} />
             )}
 
             {['nominations', 'review'].includes(stage) && !(stage === 'review' && cycle.skippedNominations && perms.oversee) && (
-              <NominatePanel cycle={cycle} me={me} canAct={perms.vote} nominate={nominate} />
+              <NominatePanel cycle={cycle} me={me} canAct={perms.vote} nominate={nominate} volunteer={volunteer} />
             )}
 
             {['ballot', 'live', 'closed'].includes(stage) && (
@@ -299,7 +310,7 @@ function StartCard({ busy, onStart, openGuide }) {
 }
 
 /* ---------- Committee, President and admin controls for each stage ---------- */
-function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandidates, ask, move, act, runoff, openGuide }) {
+function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandidates, acceptVolunteer, ask, move, act, runoff, openGuide }) {
   const { stage, offices } = cycle;
   const [editing, setEditing] = useState(false);
   const c = perms.committee;
@@ -348,11 +359,11 @@ function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandida
 
       {stage === 'setup' && (c ? <OfficesEditor offices={offices} pool={pool} save={saveOffices} canRename /> : <OfficeSummary offices={offices} />)}
       {stage === 'nominations' && (<>
-        <NominationTally offices={offices} nominators={cycle.nominators} voters={voters} />
+        <NominationTally offices={offices} nominators={cycle.nominators} voters={voters} accept={c ? acceptVolunteer : null} />
         {c && <button className="btn btn-sm btn-ghost el-self-start" onClick={() => setEditing((v) => !v)}><Icon name="edit" size={12} /> {editing ? 'Done editing' : 'Edit offices & eligibility'}</button>}
         {c && editing && <OfficesEditor offices={offices} pool={pool} save={saveOffices} />}
       </>)}
-      {stage === 'review' && <CandidatesEditor offices={offices} readOnly={!c} save={setCandidates} skipped={cycle.skippedNominations} />}
+      {stage === 'review' && <CandidatesEditor offices={offices} pool={pool} readOnly={!c} save={setCandidates} skipped={cycle.skippedNominations} />}
       {stage === 'ballot' && <OfficeSummary offices={offices} candidates />}
       {['live', 'closed'].includes(stage) && <>
         {stage === 'closed' && ties.length > 0 && <div className="voted-note warn"><Icon name="vote" size={14} /> Tie for {ties.map((o) => o.name).join(', ')}. Hold a run-off between the tied candidates, or publish the results as they are.</div>}
@@ -370,8 +381,8 @@ function ManagePanel({ cycle, perms, pool, busy, voters, saveOffices, setCandida
 }
 const HINT = {
   setup: () => 'Step 1 — choose the offices and who is eligible for each. Members can\'t see any of this until you publish. You can publish for nominations, or skip nominations and choose the candidates yourselves.',
-  nominations: () => 'Step 2 — members are nominating. Counts and who nominated whom update live.',
-  review: (c) => (c.skippedNominations ? 'Step 3 — nominations were skipped: tick at least 2 candidates for each office from the eligible members.' : 'Step 3 — tick the candidates for each office (at least 2). Everyone nominated is ticked for you; you can add any eligible member.'),
+  nominations: () => 'Step 2 — members are nominating, and anyone can volunteer for an office. Counts, volunteers and who nominated whom update live.',
+  review: (c) => (c.skippedNominations ? 'Step 3 — nominations were skipped: tick at least 2 candidates for each office, or add any member with "Add a candidate".' : 'Step 3 — tick the candidates for each office (at least 2). Everyone nominated and every eligible volunteer is ticked for you; "Add a candidate" adds any member.'),
   ballot: (c) => (c.runoff ? 'Run-off — only the tied offices vote again, between the tied candidates. Press Go live when members are ready.' : 'Step 4 — the candidates are published. Press Go live when the choir is ready to vote.'),
   live: () => 'Voting is live. Results update every few seconds and are visible only to the committee, the President and admins.',
   closed: () => 'Voting is closed. Check the count — hold a run-off for any tie, then publish the results to every member.',
@@ -474,7 +485,7 @@ function OfficesEditor({ offices, pool, save, canRename }) {
           );
         })}
       </div>
-      <p className="muted tiny">Missing an office? Choose "New office" in the list above to add it by name{canRename ? ', or use the pencil to rename one' : ''}. Members on the Electoral Committee and Old Members can't be made eligible. Each office needs at least 2 eligible members.</p>
+      <p className="muted tiny">Missing an office? Choose "New office" in the list above to add it by name{canRename ? ', or use the pencil to rename one' : ''}. Any active member can be made eligible, including the Electoral Committee; Old Members can't. Each office needs at least 2 eligible members.</p>
     </div>
   );
 }
@@ -501,7 +512,24 @@ function Nominators({ by }) {
   return <div className="el-by"><span>Nominated by</span> {by.join(', ')}</div>;
 }
 
-function NominationTally({ offices, nominators, voters }) {
+function Volunteers({ list, accept, office }) {
+  if (!list?.length) return null;
+  return (
+    <div className="el-vols">
+      <span className="el-vols-h"><Icon name="user" size={12} /> Volunteered</span>
+      {list.map((v) => (
+        <span key={v.id} className={`el-vol ${v.eligible ? '' : 'out'}`}>
+          {v.name}
+          {!v.eligible && (accept
+            ? <button className="link-btn" onClick={() => accept(office, v)} title={`Make ${v.name} eligible for ${office}`}>Add to eligible</button>
+            : <em> · committee to decide</em>)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function NominationTally({ offices, nominators, voters, accept }) {
   return (
     <div className="stack sm-gap">
       <div className="el-kpis">
@@ -515,6 +543,7 @@ function NominationTally({ offices, nominators, voters }) {
             {(o.nominations || []).length ? (
               <div className="el-tally">{o.nominations.map((n) => <div key={n.id}><div className="el-tally-row"><span>{n.name}</span><b>{n.count}</b></div><Nominators by={n.by} /></div>)}</div>
             ) : <span className="muted tiny">No nominations yet.</span>}
+            <Volunteers list={o.volunteers} accept={accept} office={o.name} />
           </div>
         ))}
       </div>
@@ -523,13 +552,16 @@ function NominationTally({ offices, nominators, voters }) {
 }
 
 /* Choosing the candidates: every eligible member, nominated ones first, ticked to go on the ballot */
-function CandidatesEditor({ offices, readOnly, save, skipped }) {
+function CandidatesEditor({ offices, pool = [], readOnly, save, skipped }) {
   return (
     <div className="grid g2">
       {offices.map((o) => {
         const chosen = (o.candidates || []).map((m) => m.id);
         const noms = Object.fromEntries((o.nominations || []).map((n) => [n.id, n]));
-        const list = [...(o.eligible || [])].sort((a, b) => (noms[b.id]?.count || 0) - (noms[a.id]?.count || 0) || a.name.localeCompare(b.name));
+        const vols = new Set((o.volunteers || []).map((v) => v.id));
+        const score = (id) => (noms[id]?.count || 0) + (vols.has(id) ? 0.5 : 0);
+        const list = [...(o.eligible || [])].sort((a, b) => score(b.id) - score(a.id) || a.name.localeCompare(b.name));
+        const others = pool.filter((m) => !list.some((x) => x.id === m.id));
         const toggle = (id) => save(o.name, chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
         return (
           <div className="el-office" key={o.name}>
@@ -539,10 +571,22 @@ function CandidatesEditor({ offices, readOnly, save, skipped }) {
                 <label key={m.id} className={`el-pick ${chosen.includes(m.id) ? 'on' : ''}`}>
                   <input type="checkbox" checked={chosen.includes(m.id)} disabled={readOnly} onChange={() => toggle(m.id)} />
                   <span className="el-pick-main"><b>{m.name}</b>{noms[m.id]?.by && <Nominators by={noms[m.id].by} />}</span>
-                  {!skipped && <span className="muted tiny">{noms[m.id] ? `${noms[m.id].count} nomination${noms[m.id].count === 1 ? '' : 's'}` : 'not nominated'}</span>}
+                  <span className="muted tiny el-pick-tags">
+                    {vols.has(m.id) && <span className="chip sm ok">Volunteered</span>}
+                    {!skipped && (noms[m.id] ? `${noms[m.id].count} nomination${noms[m.id].count === 1 ? '' : 's'}` : vols.has(m.id) ? '' : 'not nominated')}
+                  </span>
                 </label>
               ))}
             </div>
+            {!readOnly && others.length > 0 && (
+              <div className="el-office-add">
+                <select className="input sm" value="" aria-label={`Add a candidate for ${o.name}`}
+                  onChange={(e) => { const m = pool.find((x) => x.id === e.target.value); if (m) save(o.name, [...chosen, m.id], `${m.name} added as a candidate for ${o.name}`); }}>
+                  <option value="">+ Add a candidate…</option>
+                  {others.map((m) => <option key={m.id} value={m.id}>{m.name}{m.part ? ` · ${m.part}` : ''}</option>)}
+                </select>
+              </div>
+            )}
           </div>
         );
       })}
@@ -551,14 +595,14 @@ function CandidatesEditor({ offices, readOnly, save, skipped }) {
 }
 
 /* ---------- Members: nominate from a dropdown ---------- */
-function NominatePanel({ cycle, me, canAct, nominate }) {
+function NominatePanel({ cycle, me, canAct, nominate, volunteer }) {
   const open = cycle.stage === 'nominations';
   return (
     <div className="card">
       <div className="card-h"><h3>{open ? 'Make your nominations' : cycle.skippedNominations ? 'Candidates' : 'Your nominations'}</h3><span className="chip sm">{open ? 'Open' : cycle.skippedNominations ? 'Being chosen' : 'Closed'}</span></div>
       <p className="muted small el-hint">{cycle.skippedNominations && !open ? 'The Electoral Committee is choosing the candidates for each office. They will appear here once published.'
         : !canAct ? 'Old Members can follow the election but not nominate.'
-          : open ? 'For each office, choose one eligible member. You can change or withdraw your choice until nominations close.'
+          : open ? 'For each office, choose one eligible member — or press "Stand for this office" to put yourself forward. You can change or withdraw until nominations close.'
             : 'Nominations are closed. The Electoral Committee is confirming the candidates.'}</p>
       {!(cycle.skippedNominations && !open) && (
         <div className="grid g2">
@@ -577,6 +621,14 @@ function NominatePanel({ cycle, me, canAct, nominate }) {
                     {mine && <button className="btn btn-sm btn-ghost" onClick={() => nominate(o.name, null)}>Withdraw</button>}
                   </div>
                 ) : <p className="small">{mine ? <>You nominated <b>{mine.name}</b>.</> : o.myNomination ? 'You made a nomination.' : <span className="muted">No nomination from you.</span>}</p>}
+                {open && canAct && (o.iVolunteered ? (
+                  <div className="voted-note el-standing">
+                    <Icon name="check" size={14} />
+                    <span>You are standing for {o.name}.{!(o.eligible || []).some((m) => m.id === me.id) && ' The Electoral Committee will decide whether to add you.'}</span>
+                    <button className="btn btn-sm btn-ghost" onClick={() => volunteer(o.name, false)}>Withdraw</button>
+                  </div>
+                ) : <button className="btn btn-sm btn-soft el-stand" onClick={() => volunteer(o.name, true)}><Icon name="user" size={12} /> Stand for this office</button>)}
+                {open && (o.volunteers || []).length > 0 && <p className="muted tiny">Volunteered: {o.volunteers.map((v) => v.name).join(', ')}</p>}
                 {open && <p className="muted tiny">{(o.eligible || []).length} eligible: {(o.eligible || []).map((m) => m.name).join(', ')}</p>}
               </div>
             );
@@ -691,7 +743,7 @@ function CommitteeTab({ committee, members, users = [], canAppoint, appoint, rem
   return (
     <div className="card">
       <div className="card-h"><h3>Electoral Committee</h3><span className="chip sm">{committee.length} member{committee.length === 1 ? '' : 's'}</span></div>
-      <p className="muted small el-hint">The committee chooses the offices and who is eligible, runs nominations, confirms the candidates, and with the President takes the vote live and publishes the results. Committee members can vote but can't be nominated.{canAppoint ? ' The President and admins appoint the committee.' : ''}</p>
+      <p className="muted small el-hint">The committee chooses the offices and who is eligible, runs nominations, confirms the candidates, and with the President takes the vote live and publishes the results. Committee members can vote, volunteer and be nominated like anyone else.{canAppoint ? ' The President and admins appoint the committee.' : ''}</p>
       <div className="stack sm-gap">
         {committee.map((u) => {
           const seen = lastSignIn(u);
@@ -749,7 +801,7 @@ function CommitteeTab({ committee, members, users = [], canAppoint, appoint, rem
 // A short checklist on the committee's own page: what to do now, and what comes next
 const QUICK = [
   ['setup', 'Choose the offices and who is eligible for each', 'Add offices from the list (or "New office"), then add eligible members — at least 2 per office.'],
-  ['nominations', 'Collect nominations — or skip them', '"Publish for nominations" lets members nominate; "Skip nominations" lets you choose the candidates yourselves.'],
+  ['nominations', 'Collect nominations and volunteers — or skip them', '"Publish for nominations" lets members nominate others or stand themselves; "Skip nominations" lets you choose the candidates yourselves.'],
   ['review', 'Confirm the candidates', 'Tick at least 2 candidates per office, then "Publish candidates".'],
   ['ballot', 'Go live', 'When the choir is ready, press "Go live". Members are told at once and can vote.'],
   ['live', 'Watch the vote, then close it', 'Results update live here (members can\'t see them). Press "Close voting" when time is up.'],
@@ -785,15 +837,15 @@ function Guide() {
   const steps = [
     ['Practise first', 'New to this? Press "Run a practice election". It works exactly like a real one, is marked Practice everywhere, and is deleted when you end it.'],
     ['1 · Offices & eligibility', 'Add the offices up for election from the dropdown (President, Secretary, Provost, Custodian 1 and 2, P.R.O., Choir Master, Assistant Choir Master). If the choir creates a new office, choose "New office" and type its name; the pencil renames one. For each office, add the eligible members (or "All members"). Each office needs at least 2. Members see nothing yet.'],
-    ['2 · Nominations (optional)', 'Publish for nominations: members pick one eligible person per office. You see the counts and who nominated whom, live. Or press "Skip nominations" to choose the candidates yourselves.'],
-    ['3 · Candidates', 'Close nominations. Everyone nominated is ticked for you — untick or tick any eligible member. Each office needs at least 2 candidates. Then publish the candidates.'],
+    ['2 · Nominations & volunteers (optional)', 'Publish for nominations: members pick one eligible person per office, and anyone can press "Stand for this office" to volunteer. You see the counts, the volunteers and who nominated whom, live. A volunteer who is not on the eligible list waits for you: press "Add to eligible". Or press "Skip nominations" to choose the candidates yourselves.'],
+    ['3 · Candidates', 'Close nominations. Everyone nominated and every eligible volunteer is ticked for you — untick or tick any eligible member, or use "Add a candidate" to add any member. Each office needs at least 2 candidates. Then publish the candidates.'],
     ['4 · Go live', 'When the choir is ready, the committee, the President or an admin presses Go live. Members are notified and vote once per office; ballots are secret.'],
     ['5 · Count', 'Close voting. Only the committee, the President and admins see the numbers (they update live while voting is open).'],
     ['6 · Ties', 'If the top candidates are level, press "Hold a run-off". Only the tied offices vote again, between the tied candidates; other offices keep their result. Go live again, then close.'],
     ['7 · Publish', 'Publish the results — every member sees the winners. Starting the next election moves these results to History.'],
   ];
   const rules = [
-    'Committee members can vote but can\'t be eligible or nominated — the committee is neutral.',
+    'Committee members can vote, volunteer and be nominated. A committee member standing for an office should leave that office\'s decisions to the rest of the committee.',
     'Old Members can follow the election but can\'t nominate or vote.',
     'Nobody — not even admins — can see who voted for whom. Only totals are counted.',
     'An election can be cancelled before voting starts; after that it must be finished. A practice can be ended at any time.',

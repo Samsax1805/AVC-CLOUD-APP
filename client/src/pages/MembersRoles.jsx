@@ -8,6 +8,7 @@ import Avatar from '../components/ui/Avatar';
 import RoleChip from '../components/ui/RoleChip';
 import Modal from '../components/ui/Modal';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import { membersPdf, DETAIL_COLUMNS } from '../utils/membersPdf';
 
 const VIEWS = [
   { id: 'active', label: 'Active', test: (u) => (u.status || 'active') === 'active' && !u.roles.includes('alumni') },
@@ -30,6 +31,7 @@ export default function MembersRoles({ ctx }) {
   const [histFor, setHistFor] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const adminCount = users.filter((x) => x.roles.includes('admin') && (x.status || 'active') === 'active').length;
 
   const doGrant = (u) => {
@@ -123,6 +125,7 @@ export default function MembersRoles({ ctx }) {
         <div><h2>Members & Roles</h2><p className="muted small">{describe}</p></div>
         <div className="head-actions">
           {canList && <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search members…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}
+          {canList && <button className="btn btn-soft" onClick={() => setPrinting(true)}><Icon name="download" size={15} /> Print list</button>}
           {canAdd && <button className="btn btn-pri" onClick={() => setAdding(blankMember)}><Icon name="plus" size={15} /> Add member</button>}
         </div>
       </div>
@@ -227,6 +230,9 @@ export default function MembersRoles({ ctx }) {
           <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setAdding(null)}>Cancel</button><button className="btn btn-pri" disabled={busy} onClick={submitAdd}>{busy ? 'Adding…' : 'Add member'}</button></div>
         </>)}
       </Modal>
+      <Modal open={printing} onClose={() => setPrinting(false)} title="Print the members list">
+        {printing && <PrintList users={users} view={view} toast={toast} log={log} close={() => setPrinting(false)} />}
+      </Modal>
       <Modal open={!!histFor} onClose={() => setHistFor(null)} title={`Role history — ${histFor?.name}`}>
         <div className="stack sm-gap">
           {roleHistory.filter((h) => h.userId === histFor?.id && ROLES[h.role]).map((h) => (
@@ -241,4 +247,87 @@ export default function MembersRoles({ ctx }) {
       </Modal>
     </div>
   );
+}
+
+/* ---------- Print the choir list: names only, or with chosen details ---------- */
+const PRINT_WHO = [
+  { id: 'active', label: 'Active members' },
+  { id: 'alumni', label: 'Old Members' },
+  { id: 'both', label: 'Active & Old Members', test: (u) => (u.status || 'active') === 'active' },
+  { id: 'deactivated', label: 'Deactivated' },
+];
+const roleLabel = (u) => {
+  const list = u.roles.filter((r) => r !== 'member' && ROLES[r]).map((r) => ROLES[r].label);
+  return list.length ? list.join(', ') : 'Member';
+};
+function PrintList({ users, view, toast, log, close }) {
+  const [who, setWho] = useState(PRINT_WHO.some((w) => w.id === view) ? view : 'active');
+  const [part, setPart] = useState('');
+  const [details, setDetails] = useState(false);
+  const [cols, setCols] = useState(['part', 'roles', 'phone']);
+  const [group, setGroup] = useState(false);
+  const [signature, setSignature] = useState(false);
+  const [title, setTitle] = useState('Choir Members List');
+  const [working, setWorking] = useState(false);
+  const def = PRINT_WHO.find((w) => w.id === who);
+  const test = def.test || VIEWS.find((v) => v.id === who).test;
+  const members = users.filter((u) => test(u) && (!part || (part === 'none' ? !u.voice : u.voice === part)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const toggleCol = (id) => setCols((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  const chosen = details ? cols : [];
+  const make = async (print) => {
+    if (!members.length) return toast('Nobody matches these choices', 'err');
+    setWorking(true);
+    try {
+      const partText = part === 'none' ? 'part not set' : part ? part : 'all parts';
+      await membersPdf({
+        members, title: title.trim() || 'Choir Members List', roleLabel, print, signature, groupByPart: group,
+        columns: chosen, subtitle: `${def.label} · ${partText}${details ? ` · with ${DETAIL_COLUMNS.filter((c) => chosen.includes(c.id) && !(group && c.id === 'part')).map((c) => c.label.toLowerCase()).join(', ') || 'names only'}` : ' · names only'}`,
+      });
+      log('MEMBERS_PRINTED', `Printed the members list (${members.length}, ${details ? 'with details' : 'names only'})`);
+      if (!print) toast('Members list downloaded');
+      close();
+    } catch { toast('The list could not be made — please try again', 'err'); } finally { setWorking(false); }
+  };
+  return (<>
+    <div className="field">
+      <label className="label">Who to include</label>
+      <div className="chip-row wrap">{PRINT_WHO.map((w) => <button type="button" key={w.id} className={`chip ${who === w.id ? 'on' : ''}`} onClick={() => setWho(w.id)}>{w.label}</button>)}</div>
+    </div>
+    <div className="field">
+      <label className="label">Part</label>
+      <div className="chip-row wrap">
+        <button type="button" className={`chip ${!part ? 'on' : ''}`} onClick={() => setPart('')}>All parts</button>
+        {VOICE_PARTS.map((p) => <button type="button" key={p} className={`chip ${part === p ? 'on' : ''}`} onClick={() => setPart(p)}>{p}</button>)}
+        <button type="button" className={`chip ${part === 'none' ? 'on' : ''}`} onClick={() => setPart('none')}>Not set</button>
+      </div>
+    </div>
+    <div className="field">
+      <label className="label">What to show</label>
+      <div className="pl-modes">
+        <button type="button" className={`pl-mode ${!details ? 'on' : ''}`} onClick={() => setDetails(false)}><b>Names only</b><span>Number and name</span></button>
+        <button type="button" className={`pl-mode ${details ? 'on' : ''}`} onClick={() => setDetails(true)}><b>With details</b><span>Choose below</span></button>
+      </div>
+      {details && (
+        <div className="pl-cols">
+          {DETAIL_COLUMNS.map((c) => (
+            <label key={c.id} className={`el-pick ${cols.includes(c.id) ? 'on' : ''}`}><input type="checkbox" checked={cols.includes(c.id)} onChange={() => toggleCol(c.id)} /><span>{c.label}</span></label>
+          ))}
+        </div>
+      )}
+      {details && chosen.some((c) => ['email', 'phone', 'birthday'].includes(c)) && <p className="muted tiny">Contains personal details — share the printout within the choir only. Birthdays show the day and month, never the year.</p>}
+    </div>
+    <div className="field">
+      <label className="label">Layout</label>
+      <label className="el-pick"><input type="checkbox" checked={group} onChange={(e) => setGroup(e.target.checked)} /><span>Group by part (Soprano, Alto, Tenor, Bass)</span></label>
+      <label className="el-pick" style={{ marginTop: 6 }}><input type="checkbox" checked={signature} onChange={(e) => setSignature(e.target.checked)} /><span>Add a blank signature column (e.g. for a sign-in sheet)</span></label>
+    </div>
+    <div className="field"><label className="label" htmlFor="pl-title">Title on the page</label><input id="pl-title" className="input" maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+    <p className="small pl-count"><b>{members.length}</b> member{members.length === 1 ? '' : 's'} will be on the list.</p>
+    <div className="modal-foot">
+      <button className="btn btn-ghost" onClick={close}>Cancel</button>
+      <button className="btn btn-soft" disabled={working || !members.length} onClick={() => make(true)}>Print</button>
+      <button className="btn btn-pri" disabled={working || !members.length} onClick={() => make(false)}><Icon name="download" size={14} /> {working ? 'Making…' : 'Download PDF'}</button>
+    </div>
+  </>);
 }

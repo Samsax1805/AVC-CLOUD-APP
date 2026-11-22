@@ -46,6 +46,7 @@ export const PERMS = {
   reviewFinance: (u) => hasAny(u, ['admin', 'president', 'secretary']),
 };
 export const ACT_META = {
+  MEMBERS_PRINTED: { l: 'List printed', c: '#1a2c60' },
   AUTH: { l: 'Sign-in', c: '#64748b' }, ROLE_GRANTED: { l: 'Role granted', c: '#f59e0b' }, ROLE_REVOKED: { l: 'Role revoked', c: '#ef4444' },
   SONG_UPLOAD: { l: 'Song upload', c: '#7c3aed' }, SONG_EDIT: { l: 'Song edit', c: '#8b5cf6' }, SONG_DELETE: { l: 'Song delete', c: '#ef4444' },
   MINUTES: { l: 'Minutes', c: '#0284c7' }, RECEIPT: { l: 'Receipt', c: '#0ea5e9' }, VOICE: { l: 'Voice note', c: '#e11d48' },

@@ -19,6 +19,7 @@ r.put('/current/offices', auth, wrap(cy.offices));
 r.put('/current/candidates', auth, wrap(cy.candidates));
 r.post('/current/stage', auth, wrap(cy.stage));
 r.post('/current/nominations', auth, wrap(cy.nominate));
+r.post('/current/volunteer', auth, wrap(cy.volunteer));
 r.post('/current/vote', auth, wrap(cy.vote));
 r.delete('/current', auth, wrap(cy.cancel));
 r.get('/', auth, wrap(c.list));
