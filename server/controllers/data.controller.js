@@ -77,6 +77,55 @@ exports.getAll = async (req, res) => {
 const OFFICERS = ['admin', 'president', 'secretary', 'finance', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral'];
 const MAX_DELETES_PER_SAVE = 3;
 
+// Who may add, change or delete each kind of record (the same roles the website's buttons use).
+// Everyone else's copy of these records is ignored, except the few things any member does
+// themselves: checking in to a session, marking a notice as read, and adding to the audit log.
+const WRITERS = {
+  songs: ['admin', 'president', 'custodian'],
+  voiceNotes: ['admin', 'president', 'custodian'],
+  minutes: ['admin', 'president', 'secretary'],
+  receipts: ['admin', 'president', 'secretary'],
+  announcements: ['admin', 'president', 'secretary'],
+  documents: ['admin', 'president', 'secretary'],
+  debts: ['admin', 'president', 'provost'],
+  sessions: ['admin', 'president', 'provost'],
+  dues: ['admin', 'president', 'provost'],
+  probations: ['admin', 'president', 'provost'],
+  duesSettings: ['admin', 'president'],
+  notifs: OFFICERS,
+  audit: [], // append-only for everyone (see ownAudit)
+  elections: [], // read-only history
+};
+const PROFILE_EDITORS = ['admin', 'president'];
+const may = (roles, list) => !roles.includes('alumni') && roles.some((r) => list.includes(r));
+const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+const plain = (d) => { if (!d) return d; const { _id, __v, createdAt, updatedAt, uid, ...rest } = d; return rest; };
+
+// A member checking themselves in: only their own "present" mark and check-in time are taken
+const ownCheckin = (item, before, me) => {
+  const mine = item.records && item.records[me] === 'present';
+  const stamp = (item.checkins || []).find((c) => c && c.userId === me);
+  if (!mine) return null;
+  const checkin = { userId: me, time: str(stamp?.time, 20), method: 'qr' };
+  if (!before) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))) return null;
+    return { date: item.date, title: str(item.title, 120) || 'Sunday Worship Service', records: { [me]: 'present' }, checkins: [checkin] };
+  }
+  if ((before.records || {})[me]) return null; // already marked by the Provost or earlier
+  return { ...plain(before), records: { ...(before.records || {}), [me]: 'present' }, checkins: [...(before.checkins || []), checkin] };
+};
+// Marking a notice as read: only this member's name is added to who has read it
+const ownRead = (item, before, me) => {
+  if (!before || !(item.readBy || []).includes(me) || (before.readBy || []).includes(me)) return null;
+  return { ...plain(before), readBy: [...(before.readBy || []), me] };
+};
+// Audit entries can be added but never changed, and always carry the real author
+const ownAudit = (item, before, me) => {
+  if (before) return null;
+  return { userId: me, role: str(item.role, 120), action: str(item.action, 40), detail: str(item.detail, 600), time: str(item.time, 20) || new Date().toISOString().slice(0, 16).replace('T', ' ') };
+};
+const LIMITED = { sessions: ownCheckin, notifs: ownRead, audit: ownAudit };
+
 // Elections run through /api/elections (electionCycle.controller.js); old poll records here are read-only history.
 
 exports.putAll = async (req, res) => {
@@ -94,13 +143,15 @@ exports.putAll = async (req, res) => {
       const existing = docs.map((d) => d.uid);
       // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
       const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec|fin)-/.test(String(id))));
-      if (removed.length && isOfficer && removed.length > MAX_DELETES_PER_SAVE) {
+      const full = may(actorRoles, WRITERS[key] || []);
+      const mayDelete = full && key !== 'elections' && key !== 'audit';
+      if (removed.length && mayDelete && removed.length > MAX_DELETES_PER_SAVE) {
         console.warn(`PUT /data refused: would delete ${removed.length} ${key} (user ${req.user.id})`);
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
       }
-      const mayDelete = key === 'elections' ? false : isOfficer;
-      plan.push({ key, M, items: body[key], removed: mayDelete ? removed : [], saved: new Map(docs.map((d) => [d.uid, d])) });
+      plan.push({ key, M, full, items: body[key], removed: mayDelete ? removed : [], saved: new Map(docs.map((d) => [d.uid, d])) });
     }
+    if (!isOfficer) delete body.pendingNoms;
     for (const key of ['roleHistory', 'nominations']) {
       if (body[key] === undefined) continue;
       const cur = await R.Misc.findOne({ key }).lean();
@@ -113,18 +164,24 @@ exports.putAll = async (req, res) => {
     // (the browser sends everything on every save; rewriting it all made saves slow)
     const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
     const gone = await tombstones.get(); // deleted on purpose by an admin: never put back from an old page
-    for (const { key, M, items, removed, saved } of plan) {
+    let ignored = 0;
+    for (const { key, M, full, items, removed, saved } of plan) {
       const ops = [];
       const deleted = new Set(gone[key] || []);
       for (const item of items) {
         const id = item && (item.id || item.uid);
-        if (!id) continue;
+        if (!id || typeof id !== 'string') continue;
         if (key === 'elections') continue; // elections run through /api/elections now
         if (deleted.has(String(id)) && !saved.has(id)) continue;
-        const { id: _drop, ...rest } = item;
+        const { id: _drop, _id, __v, createdAt, updatedAt, ...rest } = item;
         const before = saved.get(id);
         if (before && Object.keys(rest).every((k) => same(rest[k], before[k]))) continue;
-        ops.push({ updateOne: { filter: { uid: id }, update: { $set: { ...rest, uid: id } }, upsert: true } });
+        let next = rest;
+        if (!full || LIMITED[key] === ownAudit) {
+          next = LIMITED[key] ? LIMITED[key](rest, before, req.user.id) : null;
+          if (!next) { ignored += 1; continue; }
+        }
+        ops.push({ updateOne: { filter: { uid: id }, update: { $set: { ...next, uid: id } }, upsert: true } });
       }
       if (ops.length) await M.bulkWrite(ops, { ordered: true });
       if (removed.length) {
@@ -148,6 +205,8 @@ exports.putAll = async (req, res) => {
       for (const mu of body.users) {
         const existing = mongoose.isValidObjectId(mu.id) ? byId.get(String(mu.id)) : byEmail.get(String(mu.email || '').toLowerCase());
         if (!existing || existing.status === 'pending') continue;
+        // Members change only their own details; the President and admins may correct anyone's
+        if (existing._id.toString() !== req.user.id && !may(actorRoles, PROFILE_EDITORS)) continue;
         const before = existing.roles || ['member'];
         // A browser that loaded the list before someone else changed this member's roles must not undo that
         // change: role edits only apply when the roles it started from still match what is saved
@@ -173,6 +232,7 @@ exports.putAll = async (req, res) => {
         }
       }
     }
+    if (ignored) console.warn(`PUT /data: ignored ${ignored} record change(s) the user may not make (user ${req.user.id})`);
     res.json({ ok: true });
   } catch (e) {
     console.error('PUT /data failed:', e.message);

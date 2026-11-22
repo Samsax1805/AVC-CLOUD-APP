@@ -57,6 +57,8 @@ exports.download = async (req, res) => {
   res.set('Content-Type', file.metadata?.contentType || 'application/octet-stream');
   res.set('Content-Length', file.length);
   res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
+  // Shown as a file, never run as a web page on the choir's site
+  res.set('Content-Security-Policy', "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
   gridfs().openDownloadStream(id).on('error', () => res.end()).pipe(res);
 };
 

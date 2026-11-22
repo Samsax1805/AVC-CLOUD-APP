@@ -2,6 +2,7 @@ const express = require('express');
 const c = require('../controllers/auth.controller');
 const auth = require('../middleware/auth');
 const rateLimit = require('../middleware/rateLimit');
+const safe = require('../middleware/safe');
 const r = express.Router();
 
 // Per network (IP). High enough for a whole choir onboarding together on one church Wi-Fi;
@@ -20,16 +21,16 @@ const textOnly = (req, res, next) => {
   next();
 };
 
-r.post('/login', loginLimit, textOnly, c.login);
+r.post('/login', loginLimit, textOnly, safe(c.login));
 // Password-less demo login: local development only, never in production
-if (process.env.NODE_ENV !== 'production') r.post('/demo', c.demo);
-r.post('/register', signupLimit, textOnly, c.register);
-r.post('/google', loginLimit, c.google);
-r.post('/section', auth, c.section);
-r.patch('/profile', auth, c.profile);
-r.get('/me', auth, c.me);
-r.post('/forgot-password', resetLimit, textOnly, c.forgotPassword);
-r.post('/verify-reset-code', resetLimit, textOnly, c.verifyResetCode);
-r.post('/reset-password', resetLimit, textOnly, c.resetPassword);
+if (process.env.NODE_ENV !== 'production') r.post('/demo', safe(c.demo));
+r.post('/register', signupLimit, textOnly, safe(c.register));
+r.post('/google', loginLimit, safe(c.google));
+r.post('/section', auth, safe(c.section));
+r.patch('/profile', auth, safe(c.profile));
+r.get('/me', auth, safe(c.me));
+r.post('/forgot-password', resetLimit, textOnly, safe(c.forgotPassword));
+r.post('/verify-reset-code', resetLimit, textOnly, safe(c.verifyResetCode));
+r.post('/reset-password', resetLimit, textOnly, safe(c.resetPassword));
 
 module.exports = r;

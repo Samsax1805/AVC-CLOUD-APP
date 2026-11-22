@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 
@@ -102,6 +103,8 @@ exports.google = async (req, res) => {
     if (credential) {
       const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
       payload = ticket.getPayload();
+      // Only a Google account whose email Google has confirmed may sign in as that email
+      if (!payload?.email || payload.email_verified === false) return res.status(401).json({ msg: 'Your Google email is not verified' });
     } else if (profile && process.env.NODE_ENV !== 'production') {
       // Fallback for sandbox/offline mode
       payload = { email: profile.email, name: profile.name, picture: profile.avatarUrl, sub: profile.googleId };
@@ -161,12 +164,11 @@ exports.profile = async (req, res) => {
     if (!user) return res.status(404).json({ msg: 'User not found' });
     
     const { name, dob, country, phone, section } = req.body || {};
-    
-    if (name !== undefined) user.name = name;
-    if (dob !== undefined) user.dob = dob;
-    if (country !== undefined) user.country = country;
-    if (phone !== undefined) user.phone = phone;
-    if (section !== undefined) user.section = section; // Saves the voice part
+    const fields = { name: [name, 100], dob: [dob, 10], country: [country, 60], phone: [phone, 30], section: [section, 20] };
+    if (Object.values(fields).some(([v]) => v !== undefined && v !== null && typeof v !== 'string')) return res.status(400).json({ msg: 'Invalid request' });
+    if (name !== undefined && !String(name).trim()) return res.status(400).json({ msg: 'Name cannot be empty' });
+    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) return res.status(400).json({ msg: 'Invalid date of birth' });
+    for (const [k, [v, n]] of Object.entries(fields)) if (v !== undefined) user[k] = v === null ? v : v.trim().slice(0, n);
     
     await user.save();
     res.json({ user: publicUser(user) });
@@ -192,14 +194,17 @@ exports.forgotPassword = async (req, res) => {
     if (!email) return res.status(400).json({ msg: 'Email is required' });
 
     const user = await User.findOne({ email: (email || '').toLowerCase() });
+    // One code a minute per account, so nobody can flood a member's inbox
+    const lastCode = user && await ResetCode.findOne({ email: user.email }).sort({ createdAt: -1 }).lean();
+    if (lastCode && Date.now() - new Date(lastCode.createdAt) < 60000) return res.json({ success: true, message: 'Reset code sent to your email' });
     // [SECURITY] Don't reveal whether the email exists — always return success
     if (!user) {
-      console.log('⚠️ Forgot password requested for non-existent email:', email);
+      console.log('⚠️ Forgot password requested for an unknown email');
       return res.json({ success: true, message: 'If an account exists, a code was sent.' });
     }
 
     // Generate 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = crypto.randomInt(100000, 1000000).toString(); // unpredictable, unlike Math.random
     const codeHash = bcrypt.hashSync(code, 10);
 
     // Remove any old codes for this email

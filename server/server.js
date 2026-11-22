@@ -8,7 +8,10 @@ const app = express();
 const ORIGINS = ['https://avcsb.com', 'https://www.avcsb.com'];
 app.use(cors(process.env.NODE_ENV === 'production' ? { origin: ORIGINS } : {}));
 app.disable('x-powered-by');
-app.use(express.json({ limit: '50mb' }));
+// Only the whole-choir save carries large data (pictures in member profiles); everything else is small
+app.use(['/api/data', '/api/state'], express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '5mb' }));
+app.use(require('./middleware/shield'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', require('./routes/auth.routes'));
@@ -26,9 +29,14 @@ app.use((req, res) => {
   res.status(404).json({ msg: `Route not found: ${req.method} ${req.path}` });
 });
 
+// A request that fails in an unexpected way is logged; it must never stop the API for everyone
+process.on('unhandledRejection', (e) => console.error('Unhandled request failure:', e?.message || e));
+
 const PORT = process.env.PORT || 5000;
+// In production the API answers only Nginx on this machine, never the internet directly
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : undefined);
 connectDB()
-  .then(() => app.listen(PORT, () => {
+  .then(() => app.listen(PORT, HOST, () => {
     console.log(`🚀 API running on http://localhost:${PORT}`);
     require('./services/birthday.service').start();
     require('./services/psalmist.service').start();
