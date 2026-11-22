@@ -55,7 +55,7 @@ export default function Dashboard({ ctx }) {
   const canSeeActivity = PERMS.viewAudit(me); // [FIX] officers only
 
   const cards = [];
-  if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: activeUsers.length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });
+  if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: activeUsers.filter((u) => !u.system).length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });
   if (PERMS.manageDebts(me)) cards.push({ icon: 'coins', label: 'Outstanding debts', value: naira(outstanding), tone: '#e11d48' });
   if (PERMS.manageDuesSettings(me)) cards.push({ icon: 'dollar', label: 'Current weekly dues', value: naira(duesNow(duesSettings)), sub: duesSettings.length ? `since ${fmtDate(duesNow.date || duesSettings[duesSettings.length - 1]?.effectiveFrom)}` : 'not set yet', tone: '#0f766e' });
   if (PERMS.markAttendance(me)) cards.push({ icon: 'check', label: 'Last attendance', value: (attStats[attStats.length - 1]?.rate || 0) + '%', sub: attStats.length ? shortDate(attStats[attStats.length - 1].date) : 'no sessions yet', tone: '#059669' });

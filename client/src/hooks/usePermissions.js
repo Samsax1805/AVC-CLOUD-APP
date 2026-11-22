@@ -18,7 +18,8 @@ export const isAlumni = (u) => !!u && (u.roles || []).includes('alumni');
 // Old Members hold no privileges, even if an old role was left behind
 export const hasAny = (u, list) => !isAlumni(u) && list.some((r) => u.roles.includes(r));
 // Who takes part in attendance, dues and elections: active members who are not Old Members
-export const participates = (u) => !!u && (u.status || 'active') === 'active' && !isAlumni(u);
+// System accounts (e.g. admin@avcsb.com) run the website and are not choir members
+export const participates = (u) => !!u && (u.status || 'active') === 'active' && !isAlumni(u) && !u.system;
 export const PERMS = {
   manageSongs: (u) => hasAny(u, ['admin', 'president', 'custodian']),
   manageMinutes: (u) => hasAny(u, ['admin', 'president', 'secretary']),

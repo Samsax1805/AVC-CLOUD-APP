@@ -65,7 +65,8 @@ export const songCategories = (s) => (s.categories?.length ? s.categories : s.ta
 
 // Accounts that look like the same person (same name, any order or spacing): usually someone who signed up twice
 const nameKey = (n) => String(n || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).sort().join(' ');
-export const lookalikes = (users, u) => users.filter((x) => x.id !== u.id && (x.status || 'active') === 'active' && nameKey(x.name) && nameKey(x.name) === nameKey(u.name));
+// A system account (admin@avcsb.com) is meant to share its holder's name, so it never counts as a duplicate
+export const lookalikes = (users, u) => (u.system ? [] : users.filter((x) => x.id !== u.id && !x.system && (x.status || 'active') === 'active' && nameKey(x.name) && nameKey(x.name) === nameKey(u.name)));
 // "today", "3 days ago", "never" — only when the server shared it (officers who manage members)
 // Uses the later of the last sign-in and the last time the account was used while staying signed in
 export const lastUsed = (u) => [u?.lastLoginAt, u?.lastSeenAt].filter(Boolean).sort().pop() || null;

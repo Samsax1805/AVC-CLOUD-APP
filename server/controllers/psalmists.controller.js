@@ -1,3 +1,4 @@
+const { isSystem } = require('../config/system');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const PsalmDay = require('../models/PsalmDay');
@@ -22,7 +23,7 @@ const out = (d, names) => ({
 const validPsalmists = async (ids) => {
   const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))].slice(0, MAX_PSALMISTS);
   if (!list.every((id) => mongoose.isValidObjectId(id))) return null;
-  const found = await User.find({ _id: { $in: list }, status: 'active' }, { roles: 1 }).lean();
+  const found = (await User.find({ _id: { $in: list }, status: 'active' }, { roles: 1, email: 1 }).lean()).filter((u) => !isSystem(u));
   return found.length === list.length && !found.some((u) => (u.roles || []).includes('alumni')) ? list : null;
 };
 
@@ -33,7 +34,7 @@ exports.list = async (req, res) => {
   const q = { date: { $gte: `${year}-01-01`, $lte: `${year}-12-31` }, ...(planner ? {} : { published: true }) };
   const [days, users] = await Promise.all([
     PsalmDay.find(q).sort({ date: 1, createdAt: 1 }).lean(),
-    User.find({ status: 'active' }, { name: 1, section: 1, roles: 1 }).lean(),
+    User.find({ status: 'active' }, { name: 1, section: 1, roles: 1, email: 1 }).lean().then((l) => l.filter((u) => !isSystem(u))),
   ]);
   const names = Object.fromEntries(users.map((u) => [String(u._id), u.name]));
   const missing = days.flatMap((d) => d.psalmistIds || []).filter((id) => !names[id] && mongoose.isValidObjectId(id));

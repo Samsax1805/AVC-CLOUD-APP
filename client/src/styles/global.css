@@ -951,3 +951,21 @@ button.chip:hover{background:var(--navy2)}
 .shell.dark .pl-mode.on{background:#2a2412}
 .shell.dark .pl-count{background:#1a2c55}
 @media (max-width:600px){.pl-modes{grid-template-columns:1fr}.head-actions{flex-wrap:wrap}}
+
+/* Members & Roles: system admin & succession */
+.adm-card{border-left:4px solid var(--gold)}
+.adm-card h3{display:flex;align-items:center;gap:8px}
+.adm-list{display:flex;flex-direction:column;gap:8px;margin:10px 0 14px}
+.adm-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.adm-row .muted.tiny{overflow:hidden;text-overflow:ellipsis}
+.adm-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.adm-actions .el-start-row{flex:1;min-width:260px}
+.adm-warn{padding:12px 14px;border-radius:10px;background:#fdf6e6;border:1px solid #f3dca6;margin-bottom:12px}
+.adm-warn.danger{background:#fef2f2;border-color:#fecaca}
+.adm-warn p{margin:0 0 6px;font-size:13.5px}
+.chip.sys-chip{background:#e0e7ff;color:#3730a3}
+.shell.dark .adm-row{border-color:#263a66}
+.shell.dark .adm-warn{background:#2a2412;border-color:#5a4a1e}
+.shell.dark .adm-warn.danger{background:#3a1616;border-color:#6b2424}
+.shell.dark .chip.sys-chip{background:#26306b;color:#c7d2fe}
+@media (max-width:600px){.adm-actions{flex-direction:column;align-items:stretch}.adm-actions .el-start-row{min-width:0}}

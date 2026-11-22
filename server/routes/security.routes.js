@@ -13,5 +13,9 @@ r.post('/users/:id/unlock', auth, safe(c.unlockUser));
 r.get('/me', auth, safe(c.mine));
 r.post('/me/password', auth, passwordLimit, safe(c.changePassword));
 r.post('/me/signout-others', auth, safe(c.signOutOthers));
+// Who is admin: confirmed with a password or emailed code, a few tries only
+const adminLimit = rateLimit({ name: 'admin-role', windowMs: 15 * 60 * 1000, max: 20 });
+r.post('/admin-role/code', auth, adminLimit, safe(c.adminCode));
+r.post('/admin-role', auth, adminLimit, safe(c.adminRole));
 
 module.exports = r;

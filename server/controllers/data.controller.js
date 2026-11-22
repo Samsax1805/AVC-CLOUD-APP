@@ -4,6 +4,7 @@ const R = require('../models/records');
 const elections = require('./elections.controller');
 const security = require('../services/security.service');
 const tombstones = require('../services/tombstones');
+const { isSystem } = require('../config/system');
 
 const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', choirmaster: 'Choir Master', asstchoirmaster: 'Assistant Choir Master', custodian: 'Custodian', electoral: 'Electoral Committee', finance: 'Finance Secretary', alumni: 'Old Member' };
 
@@ -16,18 +17,17 @@ const KEYS = {
 
 // Executive roles that admins and the president may grant (README role table),
 // plus 'alumni' (Old Member: view-only, replaces any executive role).
-// Only an admin may grant or remove 'admin', and the last admin can't be removed.
+// The admin role itself never changes here: it is granted, removed or given up only through
+// POST /api/security/admin-role, which asks for the admin's password (security.controller.js).
 const GRANTABLE = ['president', 'secretary', 'finance', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
 const MANAGERS = ['admin', 'president'];
 
-const nextRoles = (actorRoles, current, requested, adminCount) => {
-  const isAdmin = actorRoles.includes('admin');
+const nextRoles = (actorRoles, current, requested) => {
   if (!actorRoles.some((r) => MANAGERS.includes(r))) return current;
   let out = (requested || []).filter((r) => GRANTABLE.includes(r));
+  // An admin stays an admin (and so can't be made an Old Member) until the role is handed over or given up
+  if (current.includes('admin')) return ['admin', ...out.filter((r) => r !== 'alumni')];
   if (out.includes('alumni')) out = ['alumni'];
-  const hadAdmin = current.includes('admin');
-  const wantsAdmin = (requested || []).includes('admin');
-  if (isAdmin ? (wantsAdmin || (hadAdmin && adminCount <= 1)) : hadAdmin) out.unshift('admin');
   return out.length ? out : ['member'];
 };
 
@@ -36,7 +36,7 @@ const mapMember = (u) => ({
   roles: u.roles || ['member'], voice: u.section || null, section: u.section || null,
   avatar: u.avatar || null, dob: u.dob || '', country: u.country || '', phone: u.phone || '',
   provider: u.provider || 'local', joined: u.createdAt ? u.createdAt.toISOString().slice(0, 10) : '',
-  status: u.status || 'active', color: '#1a2c60',
+  status: u.status || 'active', color: '#1a2c60', system: isSystem(u),
 });
 
 exports.mapMember = mapMember;
@@ -212,7 +212,7 @@ exports.putAll = async (req, res) => {
         // change: role edits only apply when the roles it started from still match what is saved
         const sameRoles = (x, y) => [...new Set(x)].sort().join() === [...new Set(y)].sort().join();
         const stale = Array.isArray(mu.rolesBase) && !sameRoles(mu.rolesBase.length ? mu.rolesBase : ['member'], before);
-        const roles = stale ? before : nextRoles(actorRoles, before, mu.roles, adminCount);
+        const roles = stale ? before : nextRoles(actorRoles, before, mu.roles);
         const next = {
           name: mu.name, roles,
           section: existing._id.toString() === req.user.id ? (mu.voice || mu.section || null) : (existing.section || null),

@@ -8,17 +8,20 @@ import Avatar from '../components/ui/Avatar';
 import RoleChip from '../components/ui/RoleChip';
 import Modal from '../components/ui/Modal';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import api from '../services/api';
 import { membersPdf, DETAIL_COLUMNS } from '../utils/membersPdf';
 
 const VIEWS = [
-  { id: 'active', label: 'Active', test: (u) => (u.status || 'active') === 'active' && !u.roles.includes('alumni') },
-  { id: 'alumni', label: 'Old Members', test: (u) => (u.status || 'active') === 'active' && u.roles.includes('alumni') },
-  { id: 'deactivated', label: 'Deactivated', test: (u) => u.status === 'deactivated' },
+  { id: 'active', label: 'Active', test: (u) => (u.status || 'active') === 'active' && !u.roles.includes('alumni') && !u.system },
+  { id: 'alumni', label: 'Old Members', test: (u) => (u.status || 'active') === 'active' && u.roles.includes('alumni') && !u.system },
+  { id: 'deactivated', label: 'Deactivated', test: (u) => u.status === 'deactivated' && !u.system },
+  { id: 'system', label: 'System accounts', test: (u) => !!u.system, hideEmpty: true },
   { id: 'all', label: 'All', test: () => true },
 ];
 
 export default function MembersRoles({ ctx }) {
-  const { me, users, setUsers, pendingUsers, roleHistory, setRoleHistory, log, toast, notify, memberAction, addMember, setMemberPart } = ctx;
+  const { me, users, setUsers, pendingUsers, roleHistory, setRoleHistory, log, toast, notify, memberAction, addMember, setMemberPart, retryLoad } = ctx;
+  const [adminChange, setAdminChange] = useState(null); // { action: 'grant' | 'revoke', user }
   const canManage = PERMS.manageMembers(me);
   const canAdd = PERMS.addMembers(me);
   const canParts = PERMS.editParts(me);
@@ -146,8 +149,11 @@ export default function MembersRoles({ ctx }) {
           ) : <p className="muted small">No registrations waiting. New sign-ups appear here and the President and Provost get an email.</p>}
         </div>
       )}
+      {me.roles.includes('admin') && !me.roles.includes('alumni') && (
+        <AdminSuccession me={me} users={users} adminCount={adminCount} open={setAdminChange} />
+      )}
       {canList && (<>
-        <div className="chip-row">{VIEWS.map((v) => <button key={v.id} className={`chip ${view === v.id ? 'on' : ''}`} onClick={() => setView(v.id)}>{v.label} ({count(v.id)})</button>)}</div>
+        <div className="chip-row">{VIEWS.filter((v) => !v.hideEmpty || count(v.id)).map((v) => <button key={v.id} className={`chip ${view === v.id ? 'on' : ''}`} onClick={() => setView(v.id)}>{v.label} ({count(v.id)})</button>)}</div>
         <div className="card pad0">
           <table className="tbl">
             <thead><tr><th>Member</th><th>Voice</th><th>Granted privileges</th>{canManage && <><th>Grant new role</th><th className="r" /></>}</tr></thead>
@@ -156,7 +162,7 @@ export default function MembersRoles({ ctx }) {
                 const off = u.status === 'deactivated';
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
-                    <td><div className="cell-user"><Avatar user={u} size={34} /><div><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{off && <span className="chip sm" style={{ marginLeft: 6, color: '#dc2626' }}>deactivated</span>}<div className="muted tiny">{u.email}{lastSignIn(u) && <> · {lastSignIn(u) === 'never' ? <span className="warn-text">never used</span> : `active ${lastSignIn(u)}`}</>}</div>{lookalikes(users, u).length > 0 && <div className="dup-note">⚠ Possible duplicate account: {lookalikes(users, u).map((x) => `${x.email}${lastSignIn(x) ? ` (active ${lastSignIn(x)})` : ''}`).join(', ')}</div>}</div></div></td>
+                    <td><div className="cell-user"><Avatar user={u} size={34} /><div><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{off && <span className="chip sm" style={{ marginLeft: 6, color: '#dc2626' }}>deactivated</span>}{u.system && <span className="chip sm sys-chip" style={{ marginLeft: 6 }} title="Runs the website; not counted as a choir member">system account</span>}<div className="muted tiny">{u.email}{lastSignIn(u) && <> · {lastSignIn(u) === 'never' ? <span className="warn-text">never used</span> : `active ${lastSignIn(u)}`}</>}</div>{lookalikes(users, u).length > 0 && <div className="dup-note">⚠ Possible duplicate account: {lookalikes(users, u).map((x) => `${x.email}${lastSignIn(x) ? ` (active ${lastSignIn(x)})` : ''}`).join(', ')}</div>}</div></div></td>
                     <td>
                       {canParts && !off ? (
                         <select className="input sm" aria-label={`Part ${u.name} sings`} value={u.voice || ''} disabled={busy} onChange={(e) => changePart(u, e.target.value)}>
@@ -171,7 +177,8 @@ export default function MembersRoles({ ctx }) {
                         {u.roles.filter((r) => r !== 'member' && ROLES[r]).map((r) => (
                           <span key={r} className="role-badge small" style={{ background: ROLES[r].bg, color: ROLES[r].color }}>
                             {ROLES[r].label}
-                            {canManage && !off && !(r === 'admin' && (adminCount <= 1 || !me.roles.includes('admin'))) && <button onClick={() => doRevoke(u, r)} title="Revoke"><Icon name="x" size={11} /></button>}
+                            {canManage && !off && r !== 'admin' && <button onClick={() => doRevoke(u, r)} title="Revoke"><Icon name="x" size={11} /></button>}
+                            {r === 'admin' && me.roles.includes('admin') && !off && adminCount > 1 && <button onClick={() => setAdminChange({ action: 'revoke', user: u })} title={u.id === me.id ? 'Give up your admin role' : 'Remove admin'}><Icon name="x" size={11} /></button>}
                           </span>
                         ))}
                       </div>
@@ -230,6 +237,9 @@ export default function MembersRoles({ ctx }) {
           <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setAdding(null)}>Cancel</button><button className="btn btn-pri" disabled={busy} onClick={submitAdd}>{busy ? 'Adding…' : 'Add member'}</button></div>
         </>)}
       </Modal>
+      <Modal open={!!adminChange} onClose={() => setAdminChange(null)} title={adminChange?.action === 'grant' ? 'Make an admin' : adminChange?.user?.id === me.id ? 'Give up your admin role' : 'Remove an admin'}>
+        {adminChange && <AdminChange change={adminChange} me={me} toast={toast} close={() => setAdminChange(null)} done={(self) => { setAdminChange(null); if (self) window.location.reload(); else retryLoad?.(); }} />}
+      </Modal>
       <Modal open={printing} onClose={() => setPrinting(false)} title="Print the members list">
         {printing && <PrintList users={users} view={view} toast={toast} log={log} close={() => setPrinting(false)} />}
       </Modal>
@@ -253,7 +263,7 @@ export default function MembersRoles({ ctx }) {
 const PRINT_WHO = [
   { id: 'active', label: 'Active members' },
   { id: 'alumni', label: 'Old Members' },
-  { id: 'both', label: 'Active & Old Members', test: (u) => (u.status || 'active') === 'active' },
+  { id: 'both', label: 'Active & Old Members', test: (u) => (u.status || 'active') === 'active' && !u.system },
   { id: 'deactivated', label: 'Deactivated' },
 ];
 const roleLabel = (u) => {
@@ -328,6 +338,93 @@ function PrintList({ users, view, toast, log, close }) {
       <button className="btn btn-ghost" onClick={close}>Cancel</button>
       <button className="btn btn-soft" disabled={working || !members.length} onClick={() => make(true)}>Print</button>
       <button className="btn btn-pri" disabled={working || !members.length} onClick={() => make(false)}><Icon name="download" size={14} /> {working ? 'Making…' : 'Download PDF'}</button>
+    </div>
+  </>);
+}
+
+
+/* ---------- The admin role: succession and giving it up (admins only, always confirmed) ---------- */
+function AdminSuccession({ me, users, adminCount, open }) {
+  const [pick, setPick] = useState('');
+  const admins = users.filter((u) => u.roles.includes('admin') && (u.status || 'active') === 'active');
+  const candidates = users.filter((u) => (u.status || 'active') === 'active' && !u.roles.includes('alumni') && !u.roles.includes('admin') && !u.system)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="card adm-card">
+      <div className="card-h"><h3><Icon name="shield" size={16} /> System admin &amp; succession</h3><span className="chip sm">Admins only</span></div>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        The admin runs the website. A system account such as <b>admin@avcsb.com</b> is held by a chorister but is not itself counted as a choir member.
+        Hand the role to a member for succession, then give it up when you step down. Each change asks for your password and is emailed to every admin.
+      </p>
+      <div className="adm-list">
+        {admins.map((u) => (
+          <div key={u.id} className="adm-row">
+            <Avatar user={u} size={30} />
+            <div style={{ flex: 1, minWidth: 0 }}><b>{u.name}</b>{u.id === me.id && <span className="chip sm" style={{ marginLeft: 6 }}>you</span>}{u.system && <span className="chip sm sys-chip" style={{ marginLeft: 6 }}>system account</span>}<div className="muted tiny">{u.email}</div></div>
+            {u.id !== me.id && adminCount > 1 && <button className="btn btn-sm btn-ghost" onClick={() => open({ action: 'revoke', user: u })}>Remove</button>}
+          </div>
+        ))}
+      </div>
+      <div className="adm-actions">
+        <div className="el-start-row">
+          <select className="input" value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Choose a member to make admin">
+            <option value="">Choose a member to make admin…</option>
+            {candidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.email}</option>)}
+          </select>
+          <button className="btn btn-pri" disabled={!pick} onClick={() => { const u = users.find((x) => x.id === pick); if (u) open({ action: 'grant', user: u }); }}><Icon name="plus" size={14} /> Make admin</button>
+        </div>
+        <button className="btn btn-danger-soft" disabled={adminCount <= 1} onClick={() => open({ action: 'revoke', user: me })}>Give up my admin role</button>
+      </div>
+      {adminCount <= 1 && <p className="muted tiny">You are the only admin. Make another member an admin before you can give up the role.</p>}
+    </div>
+  );
+}
+
+function AdminChange({ change, me, toast, close, done }) {
+  const { action, user } = change;
+  const self = user.id === me.id;
+  const word = action === 'grant' ? 'GRANT' : self ? 'FORFEIT' : 'REMOVE';
+  const [method, setMethod] = useState(null); // 'password' | 'code'
+  const [secret, setSecret] = useState('');
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  React.useEffect(() => { api.get('/security/me').then(({ data }) => setMethod(data.hasPassword ? 'password' : 'code')).catch(() => setMethod('password')); }, []);
+  const sendCode = async () => {
+    setBusy(true);
+    try { await api.post('/security/admin-role/code'); setSent(true); toast('A confirmation code was emailed to you'); } catch (e) { toast(e.response?.data?.msg || 'The code could not be sent', 'err'); } finally { setBusy(false); }
+  };
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post('/security/admin-role', { action, userId: user.id, confirm: typed, ...(method === 'code' ? { code: secret } : { password: secret }) });
+      toast(action === 'grant' ? `${user.name} is now an admin` : self ? 'You are no longer an admin' : `${user.name} is no longer an admin`);
+      done(data.self);
+    } catch (e) { toast(e.response?.data?.msg || 'That did not work, please try again', 'err'); } finally { setBusy(false); }
+  };
+  return (<>
+    <div className={`adm-warn ${action === 'grant' ? '' : 'danger'}`}>
+      {action === 'grant' && <p><b>{user.name}</b> ({user.email}) will get full control of the website: every role, every record, and the power to make or remove admins.</p>}
+      {action === 'revoke' && self && <p>You will lose admin control straight away{me.system ? '. This system account will then have no role and is not a choir member, so it can do nothing until an admin gives it the role again' : ' and become an ordinary member again'}. The other admin{'(s)'} keep the site running.</p>}
+      {action === 'revoke' && !self && <p><b>{user.name}</b> will lose admin control straight away.</p>}
+      <p className="muted tiny" style={{ margin: 0 }}>Every admin, {self ? 'and you' : `${user.name.split(' ')[0]} and you`}, will be emailed about this change. It is recorded in the Security log.</p>
+    </div>
+    {method === 'password' && (
+      <div className="field"><label className="label" htmlFor="adm-pw">Your password</label><input id="adm-pw" type="password" className="input" autoComplete="current-password" value={secret} onChange={(e) => setSecret(e.target.value)} /></div>
+    )}
+    {method === 'code' && (
+      <div className="field">
+        <label className="label" htmlFor="adm-code">Confirmation code</label>
+        <div className="el-start-row"><input id="adm-code" className="input" inputMode="numeric" maxLength={6} placeholder="6-digit code" value={secret} onChange={(e) => setSecret(e.target.value.replace(/\D/g, ''))} /><button className="btn btn-soft" disabled={busy} onClick={sendCode}>{sent ? 'Send again' : 'Email me a code'}</button></div>
+        <p className="muted tiny">You sign in with Google, so we email a code to {me.email} instead of asking for a password.</p>
+      </div>
+    )}
+    <div className="field"><label className="label" htmlFor="adm-word">Type <b>{word}</b> to confirm</label><input id="adm-word" className="input" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} /></div>
+    <div className="modal-foot">
+      <button className="btn btn-ghost" onClick={close}>Cancel</button>
+      <button className={`btn ${action === 'grant' ? 'btn-pri' : 'btn-danger-soft'}`} disabled={busy || !method || !secret || typed.trim().toUpperCase() !== word} onClick={submit}>
+        {busy ? 'Checking…' : action === 'grant' ? `Make ${user.name.split(' ')[0]} admin` : self ? 'Give up admin role' : 'Remove admin'}
+      </button>
     </div>
   </>);
 }

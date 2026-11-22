@@ -6,6 +6,7 @@ const { lagosNow } = require('../services/birthday.service');
 const tombstones = require('../services/tombstones');
 const SecurityEvent = require('../models/SecurityEvent');
 const { AuditLog } = require('../models/records');
+const { isSystem } = require('../config/system');
 
 // Who does what
 //   committee (Electoral Committee, admin): offices, eligibility, nominations, candidates, publishing those
@@ -38,8 +39,8 @@ let people = { at: 0, list: null, pending: null };
 const roster = async () => {
   if (people.list && Date.now() - people.at < 15000) return people.list;
   if (!people.pending) {
-    people.pending = User.find({ status: { $ne: 'pending' } }, { name: 1, section: 1, roles: 1, status: 1 }).lean()
-      .then((list) => { people = { at: Date.now(), list: list.map((u) => ({ id: String(u._id), name: u.name, part: u.section || '', roles: u.roles || [], status: u.status || 'active' })), pending: null }; return people.list; })
+    people.pending = User.find({ status: { $ne: 'pending' } }, { name: 1, section: 1, roles: 1, status: 1, email: 1 }).lean()
+      .then((list) => { people = { at: Date.now(), list: list.map((u) => ({ id: String(u._id), name: u.name, part: u.section || '', roles: u.roles || [], status: u.status || 'active', system: isSystem(u) })), pending: null }; return people.list; })
       .catch((e) => { people.pending = null; throw e; });
   }
   return people.pending;
@@ -49,9 +50,10 @@ const directory = async () => {
   const byId = new Map(list.map((u) => [u.id, u]));
   const who = (id) => { const u = byId.get(id); return { id, name: u?.name || 'Former member', part: u?.part || '' }; };
   // Who may be put forward: every active member who is not an Old Member (the Electoral Committee too)
-  const pool = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni'))
+  // (system accounts such as admin@avcsb.com run the website and are not members)
+  const pool = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni') && !u.system)
     .map(({ id, name, part }) => ({ id, name, part })).sort((a, b) => a.name.localeCompare(b.name));
-  const voters = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni')).length;
+  const voters = list.filter((u) => u.status === 'active' && !u.roles.includes('alumni') && !u.system).length;
   return { who, pool, voters };
 };
 
@@ -121,8 +123,12 @@ const view = async (cycle, user, dir) => {
 };
 
 // GET /api/elections/current — everything the page needs, in as few database trips as possible
+const systemUser = async (req) => !!(await roster()).find((u) => u.id === req.user.id)?.system;
+const NOT_MEMBER = 'The system admin account is not a choir member: it runs the election but does not nominate or vote';
+
 exports.current = async (req, res) => {
   const p = perms(req.user.roles);
+  if (await systemUser(req)) p.vote = false;
   const [cycle, dir] = await Promise.all([Cycle.findOne(ACTIVE).sort({ createdAt: -1 }), directory()]);
   const visible = cycle && (cycle.stage !== 'setup' || p.oversee);
   res.json({
@@ -344,6 +350,7 @@ exports.cancel = async (req, res) => {
 // POST /api/elections/current/nominations { office, nomineeId } — one nomination per member per office;
 // choosing again replaces it, nomineeId null withdraws it
 exports.nominate = async (req, res) => {
+  if (await systemUser(req)) return res.status(403).json({ msg: NOT_MEMBER });
   if (!perms(req.user.roles).vote) return res.status(403).json({ msg: 'Old Members can follow elections but not nominate' });
   const cycle = await load(res); if (!cycle) return;
   if (cycle.stage !== 'nominations') return res.status(400).json({ msg: 'Nominations are not open' });
@@ -393,6 +400,7 @@ exports.volunteer = async (req, res) => {
 
 // POST /api/elections/current/vote { office, candId } — one secret ballot per member per office and round
 exports.vote = async (req, res) => {
+  if (await systemUser(req)) return res.status(403).json({ msg: NOT_MEMBER });
   if (!perms(req.user.roles).vote) return res.status(403).json({ msg: 'Old Members can follow elections but not vote' });
   const cycle = await load(res); if (!cycle) return;
   if (cycle.stage !== 'live') return res.status(400).json({ msg: 'Voting is not open' });
