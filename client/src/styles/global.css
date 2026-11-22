@@ -969,3 +969,24 @@ button.chip:hover{background:var(--navy2)}
 .shell.dark .adm-warn.danger{background:#3a1616;border-color:#6b2424}
 .shell.dark .chip.sys-chip{background:#26306b;color:#c7d2fe}
 @media (max-width:600px){.adm-actions{flex-direction:column;align-items:stretch}.adm-actions .el-start-row{min-width:0}}
+
+/* Top search */
+.gsearch{position:relative}
+.gsearch .search-box input{min-width:0}
+.gsearch-x{border:none;background:none;color:#9fb0dd;cursor:pointer;display:inline-flex;padding:2px}
+.gsearch-pop{position:absolute;top:calc(100% + 6px);left:0;width:min(440px,calc(100vw - 32px));max-height:min(70vh,520px);overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px rgba(14,28,61,.18);z-index:60;padding:6px}
+.gsearch-group+.gsearch-group{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+.gsearch-h{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);padding:6px 10px 4px}
+.gsearch-row{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:none;background:none;border-radius:8px;text-align:left;cursor:pointer;color:var(--ink);font:inherit}
+.gsearch-row.on{background:#fdf6e6}
+.gsearch-row.static{cursor:default}
+.gsearch-ic{width:28px;height:28px;border-radius:7px;background:#e9a63a1a;color:var(--gold2);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.gsearch-t{display:flex;flex-direction:column;min-width:0}
+.gsearch-t b{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gsearch-t small{font-size:11.5px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gsearch-empty{margin:0;padding:14px 12px;font-size:13px;color:var(--mut)}
+.gsearch-foot{font-size:10.5px;color:var(--mut);padding:8px 10px 4px;border-top:1px solid var(--line);margin-top:4px}
+.shell.dark .gsearch-pop{background:#13224a;border-color:#263a66}
+.shell.dark .gsearch-row{color:#eee7d6}
+.shell.dark .gsearch-row.on{background:#1f3264}
+@media (max-width:600px){.gsearch{flex:4 1 auto;min-width:0}.gsearch .search-box.navy{min-width:0}.gsearch-pop{position:fixed;top:64px;left:16px;right:16px;width:auto}.gsearch-foot{display:none}}

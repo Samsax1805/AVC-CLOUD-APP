@@ -101,19 +101,6 @@ const may = (roles, list) => !roles.includes('alumni') && roles.some((r) => list
 const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
 const plain = (d) => { if (!d) return d; const { _id, __v, createdAt, updatedAt, uid, ...rest } = d; return rest; };
 
-// A member checking themselves in: only their own "present" mark and check-in time are taken
-const ownCheckin = (item, before, me) => {
-  const mine = item.records && item.records[me] === 'present';
-  const stamp = (item.checkins || []).find((c) => c && c.userId === me);
-  if (!mine) return null;
-  const checkin = { userId: me, time: str(stamp?.time, 20), method: 'qr' };
-  if (!before) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))) return null;
-    return { date: item.date, title: str(item.title, 120) || 'Sunday Worship Service', records: { [me]: 'present' }, checkins: [checkin] };
-  }
-  if ((before.records || {})[me]) return null; // already marked by the Provost or earlier
-  return { ...plain(before), records: { ...(before.records || {}), [me]: 'present' }, checkins: [...(before.checkins || []), checkin] };
-};
 // Marking a notice as read: only this member's name is added to who has read it
 const ownRead = (item, before, me) => {
   if (!before || !(item.readBy || []).includes(me) || (before.readBy || []).includes(me)) return null;
@@ -124,7 +111,19 @@ const ownAudit = (item, before, me) => {
   if (before) return null;
   return { userId: me, role: str(item.role, 120), action: str(item.action, 40), detail: str(item.detail, 600), time: str(item.time, 20) || new Date().toISOString().slice(0, 16).replace('T', ' ') };
 };
-const LIMITED = { sessions: ownCheckin, notifs: ownRead, audit: ownAudit };
+// Checking in now goes through /api/attendance/checkin with a code signed by the server
+const LIMITED = { notifs: ownRead, audit: ownAudit };
+const keepCheckins = (next, before) => {
+  const records = { ...(next.records || {}) };
+  const checkins = [...(next.checkins || [])];
+  for (const c of before.checkins || []) {
+    if (!c?.userId) continue;
+    if (!checkins.some((x) => x?.userId === c.userId)) checkins.push(c);
+    const was = before.records instanceof Map ? before.records.get(c.userId) : (before.records || {})[c.userId];
+    if (records[c.userId] === undefined && was) records[c.userId] = was;
+  }
+  return { ...next, records, checkins };
+};
 
 // Elections run through /api/elections (electionCycle.controller.js); old poll records here are read-only history.
 
@@ -181,6 +180,8 @@ exports.putAll = async (req, res) => {
           next = LIMITED[key] ? LIMITED[key](rest, before, req.user.id) : null;
           if (!next) { ignored += 1; continue; }
         }
+        // Members who checked themselves in after this officer opened the page are kept, not wiped
+        if (key === 'sessions' && before) next = keepCheckins(next, before);
         ops.push({ updateOne: { filter: { uid: id }, update: { $set: { ...next, uid: id } }, upsert: true } });
       }
       if (ops.length) await M.bulkWrite(ops, { ordered: true });

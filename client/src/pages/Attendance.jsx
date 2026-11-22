@@ -7,6 +7,7 @@ import Avatar from '../components/ui/Avatar';
 import StatCard from '../components/ui/StatCard';
 import Modal from '../components/ui/Modal';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import api from '../services/api';
 
 const STYLES = { present: { c: '#059669', bg: '#d1fae5' }, absent: { c: '#dc2626', bg: '#fee2e2' }, late: { c: '#e0862c', bg: '#fdf3df' }, excused: { c: '#d97706', bg: '#fef3c7' }, unmarked: { c: '#64748b', bg: '#f1f5f9' } };
 
@@ -25,28 +26,31 @@ export default function AttendancePage({ ctx }) {
   useEffect(() => { if (!qr) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [qr]);
   const secsLeft = qr ? Math.max(0, Math.round((qr.exp - now) / 1000)) : 0;
 
+  // Keep the page's copy of a session in step with the server's (check-ins are saved by the server)
+  const keep = (s) => s && setSessions((p) => (p.some((x) => x.date === s.date) ? p.map((x) => (x.date === s.date ? { ...x, ...s, id: x.id || s.id } : x)) : [s, ...p]));
+  // The code is made and signed by the server, so only a code shown here can check anyone in
   const genQR = async () => {
-    const exp = Date.now() + 90000;
-    const token = btoa(JSON.stringify({ sid: attDate, exp }));
-    const img = await QRCode.toDataURL(token, { width: 170, margin: 1 });
-    setQr({ token, img, exp }); setNow(Date.now());
-    log('ATTENDANCE', `Generated check-in QR for ${attTitle} (${fmtDate(attDate)})`);
-    toast('QR generated — valid for 90 seconds');
-  };
-  const checkin = () => {
     try {
-      const { sid, exp } = JSON.parse(atob(code.trim()));
-      if (exp < Date.now()) return toast('Code expired — ask the Provost for a fresh QR', 'err');
-      const exists = sessions.find((x) => x.date === sid);
-      if (exists && (exists.records || {})[me.id]) return toast('You are already marked for this session', 'err');
-      setSessions((p) => {
-        const has = p.find((x) => x.date === sid);
-        if (has) return p.map((x) => (x.date === sid ? { ...x, records: { ...x.records, [me.id]: 'present' }, checkins: [...(x.checkins || []), { userId: me.id, time: new Date().toLocaleTimeString(), method: 'qr' }] } : x));
-        return [{ id: uid('att'), date: sid, title: 'Sunday Worship Service', records: { [me.id]: 'present' }, checkins: [{ userId: me.id, time: new Date().toLocaleTimeString(), method: 'qr' }] }, ...p];
-      });
-      log('ATTENDANCE', `${me.name} checked in via QR (${fmtDate(sid)})`);
+      const { data } = await api.post('/attendance/qr', { date: attDate, title: attTitle });
+      const img = await QRCode.toDataURL(data.code, { width: 170, margin: 1 });
+      keep(data.session);
+      setQr({ token: data.code, img, exp: data.exp }); setNow(Date.now());
+      if (!qr) log('ATTENDANCE', `Showed the check-in code for ${attTitle} (${fmtDate(attDate)})`);
+      toast('Check-in code ready: valid for 90 seconds');
+    } catch (e) { toast(e.response?.data?.msg || 'The code could not be made. Check your connection.', 'err'); }
+  };
+  const [checking, setChecking] = useState(false);
+  const checkin = async () => {
+    if (!code.trim()) return;
+    setChecking(true);
+    try {
+      const { data } = await api.post('/attendance/checkin', { code: code.trim() });
+      keep(data.session);
       toast('Checked in ✅'); setCode('');
-    } catch { toast('Invalid check-in code', 'err'); }
+    } catch (e) {
+      if (e.response?.data?.session) keep(e.response.data.session);
+      toast(e.response?.data?.msg || 'Check-in failed. Check your connection and try again.', 'err');
+    } finally { setChecking(false); }
   };
 
   const counts = { present: 0, absent: 0, late: 0, excused: 0 };
@@ -78,7 +82,7 @@ export default function AttendancePage({ ctx }) {
           <div className="card-h"><h3>Check in with code</h3></div>
           <div className="grant-cell">
             <input className="input" placeholder="Paste / scan check-in code" value={code} onChange={(e) => setCode(e.target.value)} />
-            <button className="btn btn-pri btn-sm" onClick={checkin}>Check in</button>
+            <button className="btn btn-pri btn-sm" disabled={checking || !code.trim()} onClick={checkin}>{checking ? "Checking…" : "Check in"}</button>
           </div>
           <p className="muted tiny" style={{ marginTop: 8 }}>Codes expire in 90s and can't be used twice.</p>
         </div>}

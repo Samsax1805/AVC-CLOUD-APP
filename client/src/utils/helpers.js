@@ -82,6 +82,7 @@ export const lastSignIn = (u) => {
 export const POSTS = [
   'President',
   'Secretary',
+  'Finance Secretary',
   'Provost',
   'Custodian 1',
   'Custodian 2',

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROLES, rolesOf, PERMS, NAV_DEFS, visibleNav, ACT_META } from '../hooks/usePermissions';
 import Icon from './ui/Icon';
 import Avatar from './ui/Avatar';
+import GlobalSearch from './GlobalSearch';
 import Dashboard from '../pages/Dashboard';
 import MusicLibrary from '../pages/MusicLibrary';
 import MinutesPage from '../pages/Minutes';
@@ -132,7 +133,7 @@ export default function AppShell() {
       <div className="main">
         <header className="topbar">
           <button className="icon-btn burger" onClick={() => setSideOpen(true)}><Icon name="menu" size={18} /></button>
-          <div className="search-box navy"><Icon name="search" size={15} /><input placeholder="Search anything…" /></div>
+          <GlobalSearch ctx={ctx} nav={[...nav, ...(PERMS.viewSecurity(me) ? [{ id: 'security', label: 'Security', sec: 'Account' }] : [])]} go={(p) => { setSettingsTab('profile'); setPage(p); setSideOpen(false); }} />
           <div style={{ flex: 1 }} />
           <div style={{ position: 'relative' }}>
             <button className="icon-btn ring" onClick={openNotifs}><Icon name="bell" size={16} />{unread > 0 && <span className="bell-dot" />}</button>

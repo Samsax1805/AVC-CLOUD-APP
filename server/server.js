@@ -24,6 +24,7 @@ app.use('/api/assistant', require('./routes/assistant.routes'));
 app.use('/api/psalmists', require('./routes/psalmists.routes'));
 app.use('/api/messages', require('./routes/messages.routes'));
 app.use('/api/finance', require('./routes/finance.routes'));
+app.use('/api/attendance', require('./routes/attendance.routes'));
 
 app.use((req, res) => {
   res.status(404).json({ msg: `Route not found: ${req.method} ${req.path}` });
