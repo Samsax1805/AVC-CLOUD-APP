@@ -334,7 +334,9 @@ exports.action = async (req, res) => {
     await s.save();
     const uid = `fin-${s._id}-p${s.history.length}`;
     const again = s.history.filter((h) => h.action === 'published').length > 1;
-    await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: `The ${label} financial report is ${again ? 'corrected and published again' : 'published'}. Open Finance Reports to read it or download the PDF.`, date: today(), readBy: [] } }, { upsert: true });
+    const notice = `The ${label} financial report is ${again ? 'corrected and published again' : 'published'}. Open Finance Reports to read it or download the PDF.`;
+    const made = await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: notice, date: today(), readBy: [] } }, { upsert: true });
+    if (made.upsertedCount) require('../services/push.service').toAll(notice, uid);
     await log(req, `Published the ${label} financial report (${book.name})`);
   } else if (action === 'reopen') {
     if (!p.prepare && !p.review) return fail(res, 403, 'Only the Finance Secretary, Secretary, President or an admin can reopen a month');

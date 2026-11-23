@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+// The charts library is large: it loads just after the page appears
+const AttChart = lazy(() => import('../components/DashCharts').then((m) => ({ default: m.AttChart })));
+const VoiceChart = lazy(() => import('../components/DashCharts').then((m) => ({ default: m.VoiceChart })));
+const DuesChart = lazy(() => import('../components/DashCharts').then((m) => ({ default: m.DuesChart })));
 import { motion } from 'framer-motion';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
-import { TODAY, naira, fmtDate, shortDate, PIE_COLORS, duesNow } from '../utils/helpers';
+import { TODAY, lira, fmtDate, shortDate, PIE_COLORS, duesNow } from '../utils/helpers';
 import { PERMS, rolesOf, ACT_META, participates } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
 import RoleChip from '../components/ui/RoleChip';
 import StatCard from '../components/ui/StatCard';
 import BirthdayBanner from '../components/BirthdayBanner';
+import PushBanner from '../components/PushBanner';
 
 const EmptyChart = ({ text }) => <div className="empty-chart">{text}</div>;
 
@@ -56,8 +60,8 @@ export default function Dashboard({ ctx }) {
 
   const cards = [];
   if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: activeUsers.filter((u) => !u.system).length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });
-  if (PERMS.manageDebts(me)) cards.push({ icon: 'coins', label: 'Outstanding debts', value: naira(outstanding), tone: '#e11d48' });
-  if (PERMS.manageDuesSettings(me)) cards.push({ icon: 'dollar', label: 'Current weekly dues', value: naira(duesNow(duesSettings)), sub: duesSettings.length ? `since ${fmtDate(duesNow.date || duesSettings[duesSettings.length - 1]?.effectiveFrom)}` : 'not set yet', tone: '#0f766e' });
+  if (PERMS.manageDebts(me)) cards.push({ icon: 'coins', label: 'Outstanding debts', value: lira(outstanding), tone: '#e11d48' });
+  if (PERMS.manageDuesSettings(me)) cards.push({ icon: 'dollar', label: 'Current weekly dues', value: lira(duesNow(duesSettings)), sub: duesSettings.length ? `since ${fmtDate(duesNow.date || duesSettings[duesSettings.length - 1]?.effectiveFrom)}` : 'not set yet', tone: '#0f766e' });
   if (PERMS.markAttendance(me)) cards.push({ icon: 'check', label: 'Last attendance', value: (attStats[attStats.length - 1]?.rate || 0) + '%', sub: attStats.length ? shortDate(attStats[attStats.length - 1].date) : 'no sessions yet', tone: '#059669' });
   if (PERMS.manageProbation(me)) cards.push({ icon: 'clock', label: 'On probation', value: probations.filter((p) => p.status === 'active').length, tone: '#b45309' });
   if (PERMS.manageSongs(me)) cards.push({ icon: 'music', label: 'Songs in library', value: songs.length, tone: '#7c3aed' });
@@ -66,7 +70,7 @@ export default function Dashboard({ ctx }) {
   if (!cards.length) {
     const mine = sessions.map((s) => (s.records || {})[me.id]).filter(Boolean);
     cards.push({ icon: 'check', label: 'My attendance rate', value: (mine.length ? Math.round((mine.filter((v) => v === 'present').length / mine.length) * 100) : 0) + '%', sub: mine.length ? `${mine.length} sessions` : 'no sessions yet', tone: '#059669' });
-    cards.push({ icon: 'coins', label: 'My outstanding debt', value: naira(myOut), tone: '#e11d48' });
+    cards.push({ icon: 'coins', label: 'My outstanding debt', value: lira(myOut), tone: '#e11d48' });
     cards.push({ icon: 'music', label: 'Songs available', value: songs.length, tone: '#7c3aed' });
     cards.push({ icon: 'vote', label: 'Election', value: es ? es.label : 'None', sub: es?.title, tone: '#4f46e5' });
   }
@@ -74,6 +78,7 @@ export default function Dashboard({ ctx }) {
   return (
     <div className="stack dash">
       <BirthdayBanner users={users} me={me} />
+      <PushBanner me={me} toast={ctx.toast} />
 
       {es && participates(me) && ['live', 'nominations', 'published'].includes(es.stage) && (
         <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="banner">
@@ -99,31 +104,14 @@ export default function Dashboard({ ctx }) {
         <div className="card span2 dash-att">
           <div className="card-h"><h3>Attendance trend</h3><span className="chip sm">Last 5 services</span></div>
           {attData.length ? (
-            <ResponsiveContainer width="100%" height={chartH}>
-              <AreaChart data={attData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                <defs><linearGradient id="gAtt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#e9a63a" stopOpacity={0.4} /><stop offset="100%" stopColor="#e9a63a" stopOpacity={0.02} /></linearGradient></defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee5d2" vertical={false} />
-                <XAxis dataKey="d" tick={{ fontSize: 11, fill: '#8b7f6a' }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#8b7f6a' }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e3d8c2', fontSize: 12 }} />
-                <Area type="monotone" dataKey="rate" stroke="#d18f26" strokeWidth={2.5} fill="url(#gAtt)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<div style={{ height: chartH }} />}><AttChart data={attData} height={chartH} /></Suspense>
           ) : <EmptyChart text="No attendance recorded yet. Once the Provost marks a service, the trend appears here." />}
         </div>
 
         <div className="card dash-voice">
           <div className="card-h"><h3>Voice parts</h3></div>
           {voiceData.length ? (
-            <ResponsiveContainer width="100%" height={chartH}>
-              <PieChart>
-                <Pie data={voiceData} dataKey="value" nameKey="name" innerRadius={narrow ? 38 : 46} outerRadius={narrow ? 60 : 72} paddingAngle={3}>
-                  {voiceData.map((v, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e3d8c2', fontSize: 12 }} />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<div style={{ height: chartH }} />}><VoiceChart data={voiceData} height={chartH} narrow={narrow} /></Suspense>
           ) : <EmptyChart text="No voice parts assigned yet." />}
         </div>
       </div>
@@ -132,15 +120,7 @@ export default function Dashboard({ ctx }) {
         <div className="card dash-dues">
           <div className="card-h"><h3>Weekly dues collected</h3></div>
           {duesData.length ? (
-            <ResponsiveContainer width="100%" height={narrow ? 170 : 210}>
-              <BarChart data={duesData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee5d2" vertical={false} />
-                <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#8b7f6a' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#8b7f6a' }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e3d8c2', fontSize: 12 }} formatter={(v) => naira(v)} />
-                <Bar dataKey="amount" fill="#1a2c60" radius={[6, 6, 0, 0]} maxBarSize={38} />
-              </BarChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<div style={{ height: narrow ? 170 : 210 }} />}><DuesChart data={duesData} height={narrow ? 170 : 210} /></Suspense>
           ) : <EmptyChart text="No dues recorded yet." />}
         </div>
 

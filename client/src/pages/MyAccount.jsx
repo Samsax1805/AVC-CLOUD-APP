@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
-import { naira, fmtDate } from '../utils/helpers';
+import { lira, fmtDate } from '../utils/helpers';
 import { ROLES, participates, isAlumni } from '../hooks/usePermissions';
 import { EVENT_TYPES, SetlistSongs, todayStr, shortDay, longDay } from './Calendar';
 
@@ -74,20 +74,20 @@ export default function MyAccount({ ctx }) {
         {takesPart && (
           <div className="card acct-card">
             <div className="card-h"><h3>My dues in {year}</h3></div>
-            <div className="acct-big"><b>{naira(Object.values(byType).reduce((a, b) => a + b, 0))}</b><span>paid this year</span></div>
+            <div className="acct-big"><b>{lira(Object.values(byType).reduce((a, b) => a + b, 0))}</b><span>paid this year</span></div>
             <div className="acct-lines">
-              {Object.entries(byType).map(([t, v]) => <div key={t}><span>{TYPE_LABEL[t] || t}</span><b>{naira(v)}</b></div>)}
+              {Object.entries(byType).map(([t, v]) => <div key={t}><span>{TYPE_LABEL[t] || t}</span><b>{lira(v)}</b></div>)}
               {!duesYear.length && <span className="muted tiny">No payments recorded this year.</span>}
             </div>
-            {myDues[0] && <p className="muted tiny">Last payment: {naira(myDues[0].amount)} on {fmtDate(myDues[0].date)}{myDues[0].period ? ` (for ${myDues[0].period})` : ''}.</p>}
+            {myDues[0] && <p className="muted tiny">Last payment: {lira(myDues[0].amount)} on {fmtDate(myDues[0].date)}{myDues[0].period ? ` (for ${myDues[0].period})` : ''}.</p>}
           </div>
         )}
 
         <div className="card acct-card">
           <div className="card-h"><h3>Debts</h3><button className="link-btn" onClick={() => setPage('debts')}>Open</button></div>
-          <div className="acct-big"><b style={{ color: owing ? '#dc2626' : '#059669' }}>{naira(owing)}</b><span>{owing ? 'still owing' : 'nothing owing'}</span></div>
+          <div className="acct-big"><b style={{ color: owing ? '#dc2626' : '#059669' }}>{lira(owing)}</b><span>{owing ? 'still owing' : 'nothing owing'}</span></div>
           <div className="acct-lines">
-            {openDebts.slice(0, 4).map((d) => <div key={d.id}><span>{d.desc}</span><b>{naira((+d.amount || 0) - (+d.paid || 0))}</b></div>)}
+            {openDebts.slice(0, 4).map((d) => <div key={d.id}><span>{d.desc}</span><b>{lira((+d.amount || 0) - (+d.paid || 0))}</b></div>)}
           </div>
         </div>
 

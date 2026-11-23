@@ -1,3 +1,4 @@
+const push = require('./push.service');
 const User = require('../models/User');
 const PsalmDay = require('../models/PsalmDay');
 const ChatMessage = require('../models/ChatMessage');
@@ -30,6 +31,7 @@ const run = async (now = new Date(), { ignoreHour = false } = {}) => {
       const when = left === 7 ? 'in one week' : left === 14 ? 'in two weeks' : `in ${left} day${left === 1 ? '' : 's'}`;
       await ChatMessage.create({ userId: String(uid), from: 'bot', text: `🎤 Psalmist reminder: you are the responsorial psalmist ${when} — ${dayLabel(day.date)}, ${day.title}.${day.note ? `\nNote: ${day.note}` : ''}\nSee the Psalmists page for the full list.` });
       emailService.sendPsalmistReminder(member, first(member.name), day, dayLabel(day.date), when);
+      push.toUsers([uid], `🎤 You are the responsorial psalmist ${when}: ${dayLabel(day.date)}, ${day.title}.`, `psalm-${day.date}`);
       // A one-week reminder also covers the two-week one if that was missed
       day.reminders = [...new Set([...(day.reminders || []), `${uid}:${which}`, ...(which === '7' ? [`${uid}:14`] : [])])];
       sent.push(`${uid}:${which}`);

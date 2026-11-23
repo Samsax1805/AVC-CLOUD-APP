@@ -1,3 +1,4 @@
+const push = require('../services/push.service');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const DirectMessage = require('../models/DirectMessage');
@@ -71,6 +72,8 @@ exports.send = async (req, res) => {
   const other = await activeMember(req.params.id);
   if (!other) return res.status(404).json({ msg: 'That member is not active' });
   await DirectMessage.create({ pair: pairOf(me, other._id), from: me, to: String(other._id), text });
+  const sender = await User.findById(me, { name: 1 }).lean();
+  push.toUsers([String(other._id)], `💬 ${sender?.name || 'A member'}: ${text.length > 120 ? `${text.slice(0, 117)}…` : text}`, `dm-${me}`);
   return exports.thread(req, res);
 };
 

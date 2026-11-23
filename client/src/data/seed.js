@@ -21,9 +21,9 @@ export const seedSongs = [
 ];
 
 export const seedMinutes = [
-  { id: 'm1', title: 'Monthly General Meeting — July 2026', date: '2026-07-05', by: 'u3', body: 'Meeting opened at 4:05 PM with an opening hymn. The President reviewed the June activity report. Treasurer confirmed ₦84,000 in dues collected. It was resolved that the choir retreat holds September 18–20. Welfare committee to visit two members. Adjourned at 6:20 PM.' },
+  { id: 'm1', title: 'Monthly General Meeting — July 2026', date: '2026-07-05', by: 'u3', body: 'Meeting opened at 4:05 PM with an opening hymn. The President reviewed the June activity report. Treasurer confirmed ₺84,000 in dues collected. It was resolved that the choir retreat holds September 18–20. Welfare committee to visit two members. Adjourned at 6:20 PM.' },
   { id: 'm2', title: 'Executive Committee Meeting', date: '2026-07-20', by: 'u3', body: 'Excos reviewed robe procurement quotes and approved the lowest bidder. Custodian to inventory music folders before August ends. Provost to enforce punctuality fines from August. Electoral committee inaugurated for the October elections.' },
-  { id: 'm3', title: 'Choir Retreat Planning Session', date: '2026-08-01', by: 'u3', body: 'Venue confirmed at Grace Gardens, Ibadan. Transport contribution set at ₦10,000 per member. Theme: "Deeper Worship". Song list for the retreat to be released by the custodian. Deadline for payment: August 30.' },
+  { id: 'm3', title: 'Choir Retreat Planning Session', date: '2026-08-01', by: 'u3', body: 'Venue confirmed at Grace Gardens, Ibadan. Transport contribution set at ₺10,000 per member. Theme: "Deeper Worship". Song list for the retreat to be released by the custodian. Deadline for payment: August 30.' },
   { id: 'm4', title: 'Weekly Rehearsal Notes — Aug 9', date: '2026-08-09', by: 'u2', body: 'Focused on "Way Maker" transitions and "Nara" ending. Sopranos to watch the key change at bar 24. Next rehearsal Wednesday 6 PM. Attendance was 82%.' },
 ];
 
@@ -92,7 +92,7 @@ export const seedElections = [
 export const seedAudit = [
   { id: 'a1', userId: 'u6', action: 'ELECTION', detail: 'Created poll for Secretary post', time: '2026-08-15 11:00' },
   { id: 'a2', userId: 'u5', action: 'VOICE', detail: 'Uploaded voice guide "Soprano run — Imela bridge"', time: '2026-08-12 18:40' },
-  { id: 'a3', userId: 'u2', action: 'DEBT_UPDATE', detail: 'Recorded ₦5,000 payment from Miriam Bello', time: '2026-08-11 16:30' },
+  { id: 'a3', userId: 'u2', action: 'DEBT_UPDATE', detail: 'Recorded ₺5,000 payment from Miriam Bello', time: '2026-08-11 16:30' },
   { id: 'a4', userId: 'u4', action: 'ATTENDANCE', detail: 'Marked attendance for Sunday Worship Service', time: '2026-08-09 09:45' },
   { id: 'a5', userId: 'u2', action: 'SONG_UPLOAD', detail: 'Uploaded "Nara (Receive Praise)"', time: '2026-08-03 14:02' },
   { id: 'a6', userId: 'u3', action: 'MINUTES', detail: 'Published Choir Retreat Planning minutes', time: '2026-08-01 20:15' },

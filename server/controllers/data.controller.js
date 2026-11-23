@@ -5,6 +5,7 @@ const elections = require('./elections.controller');
 const security = require('../services/security.service');
 const tombstones = require('../services/tombstones');
 const { isSystem } = require('../config/system');
+const push = require('../services/push.service');
 
 const ROLE_LABEL = { admin: 'Admin', president: 'President', secretary: 'Secretary', provost: 'Provost', pro: 'PRO', choirmaster: 'Choir Master', asstchoirmaster: 'Assistant Choir Master', custodian: 'Custodian', electoral: 'Electoral Committee', finance: 'Finance Secretary', alumni: 'Old Member' };
 
@@ -185,6 +186,11 @@ exports.putAll = async (req, res) => {
         ops.push({ updateOne: { filter: { uid: id }, update: { $set: { ...next, uid: id } }, upsert: true } });
       }
       if (ops.length) await M.bulkWrite(ops, { ordered: true });
+      // New notices an officer posts (announcements, dues changes, probation…) also go to members' phones
+      if (key === 'notifs' && full) {
+        const fresh = ops.map((o) => o.updateOne).filter((u) => !saved.has(u.filter.uid) && u.update.$set.text).slice(0, 3);
+        for (const u of fresh) push.toAll(String(u.update.$set.text).slice(0, 200), u.filter.uid);
+      }
       if (removed.length) {
         await M.deleteMany({ uid: { $in: removed } });
         if (key === 'elections') await R.Ballot.deleteMany({ electionId: { $in: removed } });

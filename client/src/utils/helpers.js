@@ -4,7 +4,8 @@ export const TODAY = new Date().toISOString().slice(0, 10);
 
 export const uid = (p = 'id') => `${p}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
-export const naira = (n) => '₦' + Number(n || 0).toLocaleString();
+// The choir's money is in Turkish Lira
+export const lira = (n) => '₺' + Number(n || 0).toLocaleString('en-GB');
 
 export const fmtDate = (d) => {
   if (!d) return '—';

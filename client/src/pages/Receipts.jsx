@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TODAY, uid, naira, fmtDate } from '../utils/helpers';
+import { TODAY, uid, lira, fmtDate } from '../utils/helpers';
 import { PERMS } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
@@ -33,7 +33,7 @@ export default function ReceiptsPage({ ctx }) {
       setBusy(false);
     }
     setReceipts((p) => [{ id: uid('r'), title: form.title, amount: +form.amount, category: form.category, date: TODAY, by: me.id, ...(up && { fileUrl: up.id, fileName: up.name, mime: up.type }) }, ...p]);
-    log('RECEIPT', `Uploaded receipt "${form.title}" (${naira(+form.amount)})`); toast('Receipt uploaded'); setModal(false); setForm({ title: '', amount: '', category: 'Equipment' }); setFile(null);
+    log('RECEIPT', `Uploaded receipt "${form.title}" (${lira(+form.amount)})`); toast('Receipt uploaded'); setModal(false); setForm({ title: '', amount: '', category: 'Equipment' }); setFile(null);
   };
   return (
     <div className="stack">
@@ -42,9 +42,9 @@ export default function ReceiptsPage({ ctx }) {
         {canManage ? <button className="btn btn-pri" onClick={() => setModal(true)}><Icon name="plus" size={15} /> Add receipt</button> : <span className="chip"><Icon name="eye" size={13} /> Read-only</span>}
       </div>
       <div className="grid g3">
-        <StatCard icon="receipt" label="Total documented" value={naira(total)} tone="#0284c7" />
+        <StatCard icon="receipt" label="Total documented" value={lira(total)} tone="#0284c7" />
         <StatCard icon="file" label="Receipts on file" value={receipts.length} tone="#1a2c60" />
-        <StatCard icon="calendar" label="This month" value={naira(receipts.filter((r) => r.date.startsWith(TODAY.slice(0, 7))).reduce((a, r) => a + r.amount, 0))} tone="#e9a63a" />
+        <StatCard icon="calendar" label="This month" value={lira(receipts.filter((r) => r.date.startsWith(TODAY.slice(0, 7))).reduce((a, r) => a + r.amount, 0))} tone="#e9a63a" />
       </div>
       <div className="card pad0">
         <table className="tbl">
@@ -58,7 +58,7 @@ export default function ReceiptsPage({ ctx }) {
                   <td><span className="chip sm">{r.category}</span></td>
                   <td className="muted">{fmtDate(r.date)}</td>
                   <td className="muted">{by?.name}</td>
-                  <td className="r"><b>{naira(r.amount)}</b></td>
+                  <td className="r"><b>{lira(r.amount)}</b></td>
                   {canManage && <td className="r"><button className="icon-btn" onClick={() => { deleteFile(r.fileUrl); setReceipts((p) => p.filter((x) => x.id !== r.id)); log('RECEIPT', `Deleted receipt "${r.title}"`); toast('Receipt deleted'); }}><Icon name="trash" size={14} /></button></td>}
                 </tr>
               );
@@ -70,7 +70,7 @@ export default function ReceiptsPage({ ctx }) {
       <Modal open={modal} onClose={() => setModal(false)} title="Add receipt">
         <div className="field"><label className="label">Description</label><input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Robe cleaning service" /></div>
         <div className="grid g2">
-          <div className="field"><label className="label">Amount (₦)</label><input className="input" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
+          <div className="field"><label className="label">Amount (₺)</label><input className="input" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
           <div className="field"><label className="label">Category</label><select className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{['Equipment', 'Maintenance', 'Materials', 'Events', 'Welfare', 'Other'].map((c) => <option key={c}>{c}</option>)}</select></div>
         </div>
         <label className="upload-drop" style={{ marginTop: 12 }}>

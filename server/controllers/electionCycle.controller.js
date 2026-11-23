@@ -7,6 +7,7 @@ const tombstones = require('../services/tombstones');
 const SecurityEvent = require('../models/SecurityEvent');
 const { AuditLog } = require('../models/records');
 const { isSystem } = require('../config/system');
+const push = require('../services/push.service');
 
 // Who does what
 //   committee (Electoral Committee, admin): offices, eligibility, nominations, candidates, publishing those
@@ -178,7 +179,9 @@ const load = async (res) => {
 };
 const announce = async (cycle, key, text) => {
   const uid = `elec-${cycle._id}-${key}`;
-  await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: cycle.mock ? `Practice election — ${text}` : text, date: today(), readBy: [] } }, { upsert: true });
+  const full = cycle.mock ? `Practice election — ${text}` : text;
+  const r = await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: full, date: today(), readBy: [] } }, { upsert: true });
+  if (r.upsertedCount) push.toAll(full, uid);
 };
 const log = (req, cycle, detail) => security.recordAction(req, 'election', { id: req.user.id, name: 'Elections' }, `${cycle?.mock ? '[Practice] ' : ''}${detail}`);
 const reply = async (req, res, cycle) => res.json({ ok: true, cycle: await view(cycle, req.user) });

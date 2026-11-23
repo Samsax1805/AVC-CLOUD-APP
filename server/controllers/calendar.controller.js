@@ -5,6 +5,7 @@ const { Event, Setlist } = require('../models/Calendar');
 const { Song, Notification } = require('../models/records');
 const tombstones = require('../services/tombstones');
 const security = require('../services/security.service');
+const push = require('../services/push.service');
 
 // Who plans what
 //   events (rehearsals, services, meetings): admin, President, Secretary, Provost, Choir Master, Assistant
@@ -119,7 +120,9 @@ exports.saveSetlist = async (req, res) => {
   // Members hear about it the first time it is published; unpublishing takes the notice back
   const uid = `set-${date}`;
   if (published && !before?.published) {
-    await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: `🎵 The songs for ${dayLabel(date)}${saved.title ? ` (${saved.title})` : ''} are ready on the Calendar.`, date: new Date().toISOString().slice(0, 10), readBy: [] } }, { upsert: true });
+    const note = `🎵 The songs for ${dayLabel(date)}${saved.title ? ` (${saved.title})` : ''} are ready on the Calendar.`;
+    const r = await Notification.updateOne({ uid }, { $setOnInsert: { uid, text: note, date: new Date().toISOString().slice(0, 10), readBy: [] } }, { upsert: true });
+    if (r.upsertedCount) push.toAll(note, uid);
     security.recordAction(req, 'calendar', { id: req.user.id, name: 'Calendar' }, `Published the setlist for ${date} (${items.length} songs)`).catch(() => {});
   }
   if (!published && before?.published) { await Notification.deleteOne({ uid }); await tombstones.add('notifs', [uid]); }

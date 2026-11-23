@@ -1,4 +1,5 @@
 const { isSystem } = require('../config/system');
+const push = require('./push.service');
 const User = require('../models/User');
 const { Notification } = require('../models/records');
 const emailService = require('./email.service');
@@ -42,6 +43,7 @@ const run = async (now = new Date()) => {
       { upsert: true },
     );
     if (!r.upsertedCount) continue;
+    push.toAll(`🎂 Today is ${u.name}'s birthday! Send a song, a prayer or a warm wish.`, uid);
     await emailService.sendBirthdayWish(u, first(u.name));
     done.push(u.email);
   }

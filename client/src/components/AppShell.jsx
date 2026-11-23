@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDataContext } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
@@ -7,25 +7,26 @@ import Icon from './ui/Icon';
 import Avatar from './ui/Avatar';
 import GlobalSearch from './GlobalSearch';
 import Dashboard from '../pages/Dashboard';
-import MusicLibrary from '../pages/MusicLibrary';
-import CalendarPage from '../pages/Calendar';
-import MyAccountPage from '../pages/MyAccount';
-import MinutesPage from '../pages/Minutes';
-import VoicePage from '../pages/VoiceNotes';
-import ReceiptsPage from '../pages/Receipts';
-import AttendancePage from '../pages/Attendance';
-import DebtsPage from '../pages/Debts';
-import DuesPage from '../pages/Dues';
-import ElectionsPage from '../pages/Elections';
-import AuditPage from '../pages/AuditLog';
-import MembersPage from '../pages/MembersRoles';
-import ProfilePage from '../pages/Profile';
-import AnnouncementsPage from '../pages/Announcements';
-import DocumentsPage from '../pages/Documents';
-import ProbationPage from '../pages/Probation';
-import SecurityPage from '../pages/Security';
-import PsalmistsPage from '../pages/Psalmists';
-import FinancePage from '../pages/Finance';
+// Pages load the first time they are opened, so the site starts faster (the Dashboard comes with it)
+const MusicLibrary = lazy(() => import('../pages/MusicLibrary'));
+const CalendarPage = lazy(() => import('../pages/Calendar'));
+const MyAccountPage = lazy(() => import('../pages/MyAccount'));
+const MinutesPage = lazy(() => import('../pages/Minutes'));
+const VoicePage = lazy(() => import('../pages/VoiceNotes'));
+const ReceiptsPage = lazy(() => import('../pages/Receipts'));
+const AttendancePage = lazy(() => import('../pages/Attendance'));
+const DebtsPage = lazy(() => import('../pages/Debts'));
+const DuesPage = lazy(() => import('../pages/Dues'));
+const ElectionsPage = lazy(() => import('../pages/Elections'));
+const AuditPage = lazy(() => import('../pages/AuditLog'));
+const MembersPage = lazy(() => import('../pages/MembersRoles'));
+const ProfilePage = lazy(() => import('../pages/Profile'));
+const AnnouncementsPage = lazy(() => import('../pages/Announcements'));
+const DocumentsPage = lazy(() => import('../pages/Documents'));
+const ProbationPage = lazy(() => import('../pages/Probation'));
+const SecurityPage = lazy(() => import('../pages/Security'));
+const PsalmistsPage = lazy(() => import('../pages/Psalmists'));
+const FinancePage = lazy(() => import('../pages/Finance'));
 import DutyChat from './DutyChat';
 import LiveUpdates from './LiveUpdates';
 
@@ -168,7 +169,7 @@ export default function AppShell() {
           )}
           <AnimatePresence mode="wait">
             <motion.div key={page} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
-              {renderPage()}
+              <Suspense fallback={<div className="card page-loading"><span className="spin" /> Loading…</div>}>{renderPage()}</Suspense>
             </motion.div>
           </AnimatePresence>
         </main>

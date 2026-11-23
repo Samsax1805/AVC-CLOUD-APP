@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import COUNTRIES from '../data/countries';
 import PhoneField, { parsePhone, joinPhone } from '../components/PhoneField';
 import AccountSecurity from '../components/AccountSecurity';
+import PushSettings from '../components/PushSettings';
 import Avatar from '../components/ui/Avatar';
 import Icon from '../components/ui/Icon';
 import RoleChip from '../components/ui/RoleChip';
@@ -118,7 +119,7 @@ export default function ProfilePage({ ctx }) {
     );
   }
 
-  const tabs = [['profile', 'Profile'], ['security', 'Security']];
+  const tabs = [['profile', 'Profile'], ['notifications', 'Notifications'], ['security', 'Security']];
   return (
     <div className="stack settings">
       <div className="page-head"><div><h2>Settings</h2><p className="muted small">Your profile and how you sign in.</p></div></div>
@@ -138,7 +139,7 @@ export default function ProfilePage({ ctx }) {
           <div className="card-h"><h3>Personal details</h3></div>
           {formBody}
         </div>
-      </>) : <AccountSecurity toast={toast} />}
+      </>) : tab === 'notifications' ? <PushSettings toast={toast} /> : <AccountSecurity toast={toast} />}
     </div>
   );
 }
