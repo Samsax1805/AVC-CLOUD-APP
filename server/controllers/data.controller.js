@@ -114,6 +114,8 @@ const ownAudit = (item, before, me) => {
 };
 // Checking in now goes through /api/attendance/checkin with a code signed by the server
 const LIMITED = { notifs: ownRead, audit: ownAudit };
+// Kinds now saved one record at a time through /api/records (records.controller.js)
+const MOVED = new Set(['sessions', 'dues', 'debts']);
 const keepCheckins = (next, before) => {
   const records = { ...(next.records || {}) };
   const checkins = [...(next.checkins || [])];
@@ -144,7 +146,7 @@ exports.putAll = async (req, res) => {
       // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
       const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec|fin|set)-/.test(String(id))));
       const full = may(actorRoles, WRITERS[key] || []);
-      const mayDelete = full && key !== 'elections' && key !== 'audit';
+      const mayDelete = full && key !== 'elections' && key !== 'audit' && !MOVED.has(key);
       if (removed.length && mayDelete && removed.length > MAX_DELETES_PER_SAVE) {
         console.warn(`PUT /data refused: would delete ${removed.length} ${key} (user ${req.user.id})`);
         return res.status(409).json({ msg: `Save refused: it would delete ${removed.length} ${key} records at once. Reload the page and try again.` });
@@ -176,6 +178,8 @@ exports.putAll = async (req, res) => {
         const { id: _drop, _id, __v, createdAt, updatedAt, ...rest } = item;
         const before = saved.get(id);
         if (before && Object.keys(rest).every((k) => same(rest[k], before[k]))) continue;
+        // Saved one at a time now (/api/records): an old open page may still add one, never change or remove one
+        if (MOVED.has(key) && before) { ignored += 1; continue; }
         let next = rest;
         if (!full || LIMITED[key] === ownAudit) {
           next = LIMITED[key] ? LIMITED[key](rest, before, req.user.id) : null;

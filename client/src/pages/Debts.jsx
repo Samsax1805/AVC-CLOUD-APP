@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TODAY, uid, lira, fmtDate } from '../utils/helpers';
+import { TODAY, lira, fmtDate } from '../utils/helpers';
 import { PERMS } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
@@ -7,6 +7,7 @@ import Modal from '../components/ui/Modal';
 import StatCard from '../components/ui/StatCard';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import api from '../services/api';
 
 export default function DebtsPage({ ctx }) {
   const { me, users, members, debts, setDebts, log, toast } = ctx;
@@ -22,18 +23,24 @@ export default function DebtsPage({ ctx }) {
   const addDebt = () => {
     if (!form.memberId) return toast('Choose a member', 'err');
     if (!form.desc.trim() || !+form.amount) return toast('Enter description and amount', 'err');
-    setDebts((p) => [{ id: uid('d'), memberId: form.memberId, desc: form.desc, amount: +form.amount, paid: 0, date: TODAY }, ...p]);
-    log('DEBT_UPDATE', `Added debt "${form.desc}" for ${users.find((u) => u.id === form.memberId)?.name}`);
-    toast('Debt recorded'); setAddOpen(false); setForm({ memberId: '', desc: '', amount: '' });
+    // Saved on its own (not with the whole choir's data), so nobody else's changes can be lost
+    api.post('/records/debts', { memberId: form.memberId, desc: form.desc, amount: +form.amount, date: TODAY }).then(({ data }) => {
+      setDebts((p) => [data.record, ...p]);
+      log('DEBT_UPDATE', `Added debt "${form.desc}" for ${users.find((u) => u.id === form.memberId)?.name}`);
+      toast('Debt recorded'); setAddOpen(false); setForm({ memberId: '', desc: '', amount: '' });
+    }).catch((e) => toast(e.response?.data?.msg || 'That was not saved. Check your connection and try again.', 'err'));
   };
   const confirmPay = () => {
     const amt = +payAmt;
     const bal = payFor.amount - payFor.paid;
     if (!amt || amt <= 0) return toast('Enter a valid amount', 'err');
     if (amt > bal) return toast('Amount exceeds outstanding balance', 'err');
-    setDebts((p) => p.map((d) => (d.id === payFor.id ? { ...d, paid: d.paid + amt } : d)));
-    log('DEBT_UPDATE', `Recorded ${lira(amt)} payment from ${users.find((u) => u.id === payFor.memberId)?.name}`);
-    toast('Payment recorded'); setPayFor(null); setPayAmt('');
+    // The server adds the payment itself, so two payments at the same moment can't overpay or get lost
+    api.post(`/records/debts/${payFor.id}/pay`, { amount: amt }).then(({ data }) => {
+      setDebts((p) => p.map((d) => (d.id === payFor.id ? data.record : d)));
+      log('DEBT_UPDATE', `Recorded ${lira(amt)} payment from ${users.find((u) => u.id === payFor.memberId)?.name}`);
+      toast('Payment recorded'); setPayFor(null); setPayAmt('');
+    }).catch((e) => { if (e.response?.data?.record) setDebts((p) => p.map((d) => (d.id === payFor.id ? e.response.data.record : d))); toast(e.response?.data?.msg || 'The payment was not saved. Try again.', 'err'); });
   };
   const DebtRow = ({ d, manageView }) => {
     const u = users.find((x) => x.id === d.memberId);
@@ -50,7 +57,7 @@ export default function DebtsPage({ ctx }) {
         {manageView && (
           <td className="r">
             {d.amount - d.paid > 0 ? <button className="btn btn-sm btn-soft" onClick={() => { setPayFor(d); setPayAmt(''); }}>Record payment</button> : <span className="chip sm" style={{ color: '#059669' }}>Cleared ✓</span>}
-            <button className="icon-btn" onClick={() => { setDebts((p) => p.filter((x) => x.id !== d.id)); log('DEBT_UPDATE', `Deleted debt record "${d.desc}"`); toast('Debt record removed'); }}><Icon name="trash" size={14} /></button>
+            <button className="icon-btn" aria-label={`Remove debt ${d.desc}`} onClick={() => api.delete(`/records/debts/${d.id}`).then(() => { setDebts((p) => p.filter((x) => x.id !== d.id)); log('DEBT_UPDATE', `Deleted debt record "${d.desc}"`); toast('Debt record removed'); }).catch((e) => toast(e.response?.data?.msg || 'That was not saved. Check your connection and try again.', 'err'))}><Icon name="trash" size={14} /></button>
           </td>
         )}
       </tr>

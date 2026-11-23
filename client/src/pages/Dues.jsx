@@ -7,6 +7,7 @@ import Modal from '../components/ui/Modal';
 import StatCard from '../components/ui/StatCard';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import api from '../services/api';
 
 export default function DuesPage({ ctx }) {
   const { me, users, members, dues, setDues, duesSettings, setDuesSettings, log, toast, notify } = ctx;
@@ -26,9 +27,12 @@ export default function DuesPage({ ctx }) {
     if (!form.period.trim()) return toast('Enter the period', 'err');
     const amt = +form.amount || (tab === 'weekly' ? current : 0);
     if (!amt) return toast('Enter an amount', 'err');
-    setDues((p) => [{ id: uid('du'), type: tab, memberId: form.memberId, period: form.period, amount: amt, date: TODAY, by: me.id }, ...p]);
-    log('DUES', `Recorded ${TYPES[tab].l.toLowerCase()} of ${lira(amt)} for ${users.find((u) => u.id === form.memberId)?.name}`);
-    toast('Dues record saved'); setModal(false); setForm({ memberId: '', period: '', amount: '' });
+    // Saved on its own (not with the whole choir's data), so nobody else's changes can be lost
+    api.post('/records/dues', { type: tab, memberId: form.memberId, period: form.period, amount: amt, date: TODAY }).then(({ data }) => {
+      setDues((p) => [data.record, ...p]);
+      log('DUES', `Recorded ${TYPES[tab].l.toLowerCase()} of ${lira(amt)} for ${users.find((u) => u.id === form.memberId)?.name}`);
+      toast('Dues record saved'); setModal(false); setForm({ memberId: '', period: '', amount: '' });
+    }).catch((e) => toast(e.response?.data?.msg || 'That was not saved. Check your connection and try again.', 'err'));
   };
 
   const saveSetting = () => {
@@ -77,7 +81,7 @@ export default function DuesPage({ ctx }) {
                   <td><b>{lira(d.amount)}</b></td>
                   <td className="muted">{fmtDate(d.date)}</td>
                   <td className="muted">{by?.name}</td>
-                  {PERMS.manageDues(me) && <td className="r"><button className="icon-btn" onClick={() => { setDues((p) => p.filter((x) => x.id !== d.id)); toast('Record removed'); log('DUES', `Deleted a ${TYPES[tab].l.toLowerCase()} record`); }}><Icon name="trash" size={14} /></button></td>}
+                  {PERMS.manageDues(me) && <td className="r"><button className="icon-btn" aria-label="Remove this dues record" onClick={() => api.delete(`/records/dues/${d.id}`).then(() => { setDues((p) => p.filter((x) => x.id !== d.id)); toast('Record removed'); log('DUES', `Deleted a ${TYPES[tab].l.toLowerCase()} record`); }).catch((e) => toast(e.response?.data?.msg || 'That was not saved. Check your connection and try again.', 'err'))}><Icon name="trash" size={14} /></button></td>}
                 </tr>
               );
             })}

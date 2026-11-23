@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { TODAY, uid, fmtDate, shortDate } from '../utils/helpers';
+import { TODAY, fmtDate, shortDate } from '../utils/helpers';
 import { PERMS, participates } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
@@ -56,12 +56,20 @@ export default function AttendancePage({ ctx }) {
   const counts = { present: 0, absent: 0, late: 0, excused: 0 };
   Object.values(records).forEach((v) => { if (counts[v] !== undefined) counts[v]++; });
   const unmarked = members.filter((u) => !records[u.id]).length;
-  const save = () => {
-    setSessions((prev) => {
-      const existing = prev.find((s) => s.date === attDate);
-      return [...prev.filter((s) => s.date !== attDate), { id: existing?.id || uid('att'), date: attDate, title: attTitle, records, checkins: existing?.checkins || [] }].sort((a, b) => (a.date < b.date ? 1 : -1));
-    });
-    log('ATTENDANCE', `Marked attendance for ${attTitle} (${fmtDate(attDate)})`); toast('Attendance saved');
+  // Only the marks that changed are sent, so members who checked themselves in meanwhile are kept
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const before = sessions.find((s) => s.date === attDate)?.records || {};
+    const changed = {};
+    for (const [id, st] of Object.entries(records)) if (before[id] !== st) changed[id] = st;
+    for (const id of Object.keys(before)) if (!(id in records)) changed[id] = '';
+    setSaving(true);
+    try {
+      const { data } = await api.post('/records/sessions', { date: attDate, title: attTitle, records: changed });
+      setSessions((prev) => [...prev.filter((s) => s.date !== attDate), data.record].sort((a, b) => (a.date < b.date ? 1 : -1)));
+      setRecords({ ...data.record.records });
+      log('ATTENDANCE', `Marked attendance for ${attTitle} (${fmtDate(attDate)})`); toast('Attendance saved');
+    } catch (e) { toast(e.response?.data?.msg || 'Attendance was not saved. Check your connection and try again.', 'err'); } finally { setSaving(false); }
   };
   const mine = sessions.map((s) => ({ date: s.date, st: s.records[me.id] || 'unmarked' }));
   const myMarked = mine.filter((m) => m.st !== 'unmarked');
@@ -129,7 +137,7 @@ export default function AttendancePage({ ctx }) {
               ))}
             </div>
             <Pagination paged={rosterPaged} label="members" />
-            <div className="modal-foot"><button className="btn btn-pri" onClick={save}><Icon name="check" size={15} /> Save attendance sheet</button></div>
+            <div className="modal-foot"><button className="btn btn-pri" disabled={saving} onClick={save}><Icon name="check" size={15} /> {saving ? "Saving…" : "Save attendance sheet"}</button></div>
           </div>
         </>
       )}
