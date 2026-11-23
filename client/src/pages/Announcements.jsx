@@ -5,23 +5,27 @@ import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function AnnouncementsPage({ ctx }) {
   const { me, users, announcements, setAnnouncements, log, toast, notify } = ctx;
   const canManage = PERMS.manageAnnouncements(me);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ title: '', body: '' });
-  const save = () => {
+  const save = async () => {
     if (!form.title.trim() || !form.body.trim()) return toast('Title and message are required', 'err');
-    const roleAtTime = rolesOf(me).map((r) => ROLES[r].label).join(' + ');
-    if (modal?.mode === 'edit') {
-      setAnnouncements((p) => p.map((a) => (a.id === modal.doc.id ? { ...a, title: form.title, body: form.body } : a)));
-      log('ANNOUNCE', `Edited announcement "${form.title}"`); toast('Announcement updated');
-    } else {
-      setAnnouncements((p) => [{ id: uid('an'), title: form.title, body: form.body, by: me.id, roleAtTime, date: TODAY, pinned: false }, ...p]);
-      log('ANNOUNCE', `Posted announcement "${form.title}"`); notify(`New announcement: ${form.title}`); toast('Announcement posted to all choristers');
-    }
-    setModal(null);
+    try {
+      if (modal?.mode === 'edit') {
+        const rec = await changeRecord('announcements', modal.doc.id, { title: form.title, body: form.body });
+        setAnnouncements((p) => p.map((a) => (a.id === rec.id ? rec : a)));
+        log('ANNOUNCE', `Edited announcement "${form.title}"`); toast('Announcement updated');
+      } else {
+        const rec = await addRecord('announcements', { title: form.title, body: form.body, date: TODAY });
+        setAnnouncements((p) => [rec, ...p]);
+        log('ANNOUNCE', `Posted announcement "${form.title}"`); notify(`New announcement: ${form.title}`); toast('Announcement posted to all choristers');
+      }
+      setModal(null);
+    } catch (e) { toast(saveError(e), 'err'); }
   };
   const list = [...announcements].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
   const paged = usePaged(list, 8);
@@ -44,9 +48,9 @@ export default function AnnouncementsPage({ ctx }) {
                 </div>
                 {canManage && (
                   <div className="head-actions">
-                    <button className="btn btn-sm btn-soft" onClick={() => { setAnnouncements((p) => p.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned } : x))); toast(a.pinned ? 'Unpinned' : 'Pinned to top'); }}><Icon name="check" size={13} /></button>
+                    <button className="btn btn-sm btn-soft" onClick={() => changeRecord('announcements', a.id, { pinned: !a.pinned }).then((rec) => { setAnnouncements((p) => p.map((x) => (x.id === rec.id ? rec : x))); toast(a.pinned ? 'Unpinned' : 'Pinned to top'); }).catch((e) => toast(saveError(e), 'err'))}><Icon name="check" size={13} /></button>
                     <button className="btn btn-sm btn-soft" onClick={() => { setForm({ title: a.title, body: a.body }); setModal({ mode: 'edit', doc: a }); }}><Icon name="edit" size={13} /></button>
-                    <button className="btn btn-sm btn-danger-soft" onClick={() => { setAnnouncements((p) => p.filter((x) => x.id !== a.id)); log('ANNOUNCE', `Deleted announcement "${a.title}"`); toast('Announcement deleted'); }}><Icon name="trash" size={13} /></button>
+                    <button className="btn btn-sm btn-danger-soft" onClick={() => removeRecord('announcements', a.id).then(() => { setAnnouncements((p) => p.filter((x) => x.id !== a.id)); log('ANNOUNCE', `Deleted announcement "${a.title}"`); toast('Announcement deleted'); }).catch((e) => toast(saveError(e), 'err'))}><Icon name="trash" size={13} /></button>
                   </div>
                 )}
               </div>

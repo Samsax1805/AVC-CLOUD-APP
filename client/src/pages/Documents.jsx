@@ -8,6 +8,7 @@ import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
 import { uploadFile, openFile, sizeOf, MAX_UPLOAD_MB, DOC_ACCEPT } from '../services/files';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 const CATS = ['All', 'Constitution', 'Minutes', 'Receipts', 'Financial', 'Reports', 'Other'];
 
@@ -56,9 +57,10 @@ export default function DocumentsPage({ ctx }) {
     let up;
     try { up = await uploadFile(file); } catch (e) { setBusy(false); return toast(e.message, 'err'); }
     setBusy(false);
-    const roleAtTime = rolesOf(me).map((r) => ROLES[r].label).join(' + ');
     const ver = form.version || `v${documents.filter((d) => d.title === form.title).length + 1}.0`;
-    setDocuments((p) => [{ id: uid('doc'), title: form.title, category: form.category, version: ver, date: TODAY, by: me.id, roleAtTime, desc: form.desc, size: sizeOf(up.size), fileUrl: up.id, fileName: up.name, mime: up.type }, ...p]);
+    let rec;
+    try { rec = await addRecord('documents', { title: form.title, category: form.category, version: ver, date: TODAY, desc: form.desc, size: sizeOf(up.size), fileUrl: up.id, fileName: up.name, mime: up.type }); } catch (e) { return toast(saveError(e), 'err'); }
+    setDocuments((p) => [rec, ...p]);
     log('DOC', `Uploaded ${form.category} document "${form.title}" (${ver})`);
     if (form.category === 'Constitution') notify(`Constitution ${ver} uploaded — previous versions retained`);
     toast('Document uploaded'); setModal(false); setFile(null);

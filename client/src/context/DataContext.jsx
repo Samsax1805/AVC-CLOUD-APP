@@ -122,18 +122,17 @@ export const DataProvider = ({ children }) => {
     if (!user || loadingData || !loadOk.current) return;
     const t = setTimeout(() => {
       const sent = users.map((u) => ({ ...u, rolesBase: baseRoles.current[u.id] || u.roles }));
-      // Attendance, dues and debts are saved one record at a time by their pages (/api/records)
+      // Attendance, dues, debts, songs, voice notes, minutes, receipts, announcements, documents,
+      // probation and dues settings are saved one record at a time by their pages (/api/records)
       api.put('/data', {
-        users: sent, songs, minutes, receipts, voiceNotes, elections,
-        nominations, audit, pendingUsers, roleHistory, duesSettings, announcements,
-        documents, probations, notifs, pendingNoms,
+        users: sent, elections, nominations, audit, pendingUsers, roleHistory, notifs, pendingNoms,
       }).then(() => { users.forEach((u) => { baseRoles.current[u.id] = u.roles; }); }).catch((err) => {
         if (err.response?.status === 409) { loadOk.current = false; toast(err.response.data?.msg || 'Save refused — please refresh the page.', 'err'); }
         else if (err.response?.status !== 401) console.warn('Data save failed.');
       });
     }, 900);
     return () => clearTimeout(t);
-  }, [users, songs, minutes, receipts, voiceNotes, elections, nominations, audit, pendingUsers, roleHistory, duesSettings, announcements, documents, probations, notifs, pendingNoms, user, loadingData]);
+  }, [users, elections, nominations, audit, pendingUsers, roleHistory, notifs, pendingNoms, user, loadingData]);
 
   // One shared player: real audio for uploaded files, a simulated progress bar for older records
   const audio = useRef(null);

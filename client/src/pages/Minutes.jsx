@@ -5,6 +5,7 @@ import { PERMS, rolesOf, ROLES } from '../hooks/usePermissions';
 import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function MinutesPage({ ctx }) {
   const { me, users, minutes, setMinutes, log, toast } = ctx;
@@ -13,16 +14,20 @@ export default function MinutesPage({ ctx }) {
   const [openId, setOpenId] = useState(null);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ title: '', body: '' });
-  const save = () => {
+  const save = async () => {
     if (!form.title.trim() || !form.body.trim()) return toast('Title and content are required', 'err');
-    if (modal.mode === 'new') {
-      setMinutes((p) => [{ id: uid('m'), title: form.title, body: form.body, date: TODAY, by: me.id, roleAtTime: rolesOf(me).map((r) => ROLES[r].label).join(' + ') }, ...p]);
-      log('MINUTES', `Published minutes: "${form.title}"`); toast('Minutes published');
-    } else {
-      setMinutes((p) => p.map((m) => (m.id === modal.doc.id ? { ...m, title: form.title, body: form.body } : m)));
-      log('MINUTES', `Edited minutes: "${form.title}"`); toast('Minutes updated');
-    }
-    setModal(null);
+    try {
+      if (modal.mode === 'new') {
+        const rec = await addRecord('minutes', { title: form.title, body: form.body, date: TODAY });
+        setMinutes((p) => [rec, ...p]);
+        log('MINUTES', `Published minutes: "${form.title}"`); toast('Minutes published');
+      } else {
+        const rec = await changeRecord('minutes', modal.doc.id, { title: form.title, body: form.body });
+        setMinutes((p) => p.map((m) => (m.id === rec.id ? rec : m)));
+        log('MINUTES', `Edited minutes: "${form.title}"`); toast('Minutes updated');
+      }
+      setModal(null);
+    } catch (e) { toast(saveError(e), 'err'); }
   };
   return (
     <div className="stack">
@@ -45,7 +50,7 @@ export default function MinutesPage({ ctx }) {
                 <div className="head-actions">
                   {canEdit && <>
                     <button className="btn btn-sm btn-soft" onClick={() => { setForm({ title: m.title, body: m.body }); setModal({ mode: 'edit', doc: m }); }}><Icon name="edit" size={13} /></button>
-                    <button className="btn btn-sm btn-danger-soft" onClick={() => { setMinutes((p) => p.filter((x) => x.id !== m.id)); log('MINUTES', `Deleted minutes "${m.title}"`); toast('Minutes deleted'); }}><Icon name="trash" size={13} /></button>
+                    <button className="btn btn-sm btn-danger-soft" onClick={() => removeRecord('minutes', m.id).then(() => { setMinutes((p) => p.filter((x) => x.id !== m.id)); log('MINUTES', `Deleted minutes "${m.title}"`); toast('Minutes deleted'); }).catch((e) => toast(saveError(e), 'err'))}><Icon name="trash" size={13} /></button>
                   </>}
                   <button className="btn btn-sm btn-ghost" onClick={() => setOpenId(open ? null : m.id)}>{open ? 'Hide' : 'Read'}</button>
                 </div>

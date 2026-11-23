@@ -7,6 +7,7 @@ import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
 import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOAD_MB, sizeOf } from '../services/files';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
 const formatOf = (type) => (type === 'application/pdf' ? 'PDF Score' : type.startsWith('image/') ? 'Image' : type.startsWith('video/') ? 'Video' : type.includes('mpeg') ? 'MP3' : 'Audio');
@@ -43,20 +44,24 @@ export default function MusicLibrary({ ctx }) {
         const up = await uploadFile(file.file);
         const covers = ['#7c3aed', '#0284c7', '#e11d48', '#059669', '#f59e0b', '#4f46e5'];
         const secs = Math.round(file.secs || 0);
-        setSongs((p) => [{
-          id: uid('s'), title: form.title, part: form.part, format: form.format, size: sizeOf(up.size),
-          duration: secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : '', by: me.id, date: TODAY, categories: form.categories,
-          cover: covers[Math.floor(Math.random() * covers.length)], fileUrl: up.id, fileName: up.name, mime: up.type, preview: file.preview,
-        }, ...p]);
+        const rec = await addRecord('songs', {
+          title: form.title, part: form.part, format: form.format, size: sizeOf(up.size),
+          duration: secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : '', date: TODAY, categories: form.categories,
+          cover: covers[Math.floor(Math.random() * covers.length)], fileUrl: up.id, fileName: up.name, mime: up.type, preview: file.preview || '',
+        });
+        setSongs((p) => [rec, ...p]);
         log('SONG_UPLOAD', `Uploaded "${form.title}"`); toast('Uploaded to the library');
-      } catch (e) { return toast(e.message, 'err'); } finally { setBusy(false); }
+      } catch (e) { return toast(saveError(e), 'err'); } finally { setBusy(false); }
     } else {
-      setSongs((p) => p.map((s) => (s.id === modal.song.id ? { ...s, title: form.title, part: form.part, categories: form.categories, format: form.format } : s)));
-      log('SONG_EDIT', `Edited "${form.title}"`); toast('Song updated');
+      try {
+        const rec = await changeRecord('songs', modal.song.id, { title: form.title, part: form.part, categories: form.categories, format: form.format });
+        setSongs((p) => p.map((s) => (s.id === rec.id ? rec : s)));
+        log('SONG_EDIT', `Edited "${form.title}"`); toast('Song updated');
+      } catch (e) { return toast(saveError(e), 'err'); }
     }
     setModal(null); setFile(null);
   };
-  const del = (s) => { deleteFile(s.fileUrl); setSongs((p) => p.filter((x) => x.id !== s.id)); log('SONG_DELETE', `Deleted "${s.title}"`); toast('Song deleted'); };
+  const del = (s) => removeRecord('songs', s.id).then(() => { deleteFile(s.fileUrl); setSongs((p) => p.filter((x) => x.id !== s.id)); log('SONG_DELETE', `Deleted "${s.title}"`); toast('Song deleted'); }).catch((e) => toast(saveError(e), 'err'));
   const isMedia = (s) => !s.fileUrl || /^(audio|video)\//.test(s.mime || '');
   const openCover = (s) => (isMedia(s) ? togglePlay('song-' + s.id, s.fileUrl) : openFile(s.fileUrl, s.fileName).catch((e) => toast(e.message, 'err')));
   // "All parts" switches every part on; any single part can then be switched off again

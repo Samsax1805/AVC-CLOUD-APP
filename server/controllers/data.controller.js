@@ -41,6 +41,7 @@ const mapMember = (u) => ({
 });
 
 exports.mapMember = mapMember;
+exports.ROLE_LABEL = ROLE_LABEL;
 
 exports.getAll = async (req, res) => {
   try {
@@ -115,7 +116,7 @@ const ownAudit = (item, before, me) => {
 // Checking in now goes through /api/attendance/checkin with a code signed by the server
 const LIMITED = { notifs: ownRead, audit: ownAudit };
 // Kinds now saved one record at a time through /api/records (records.controller.js)
-const MOVED = new Set(['sessions', 'dues', 'debts']);
+const MOVED = new Set(['sessions', 'dues', 'debts', 'songs', 'voiceNotes', 'minutes', 'receipts', 'announcements', 'documents', 'probations', 'duesSettings']);
 const keepCheckins = (next, before) => {
   const records = { ...(next.records || {}) };
   const checkins = [...(next.checkins || [])];

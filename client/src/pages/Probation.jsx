@@ -6,6 +6,7 @@ import Avatar from '../components/ui/Avatar';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function ProbationPage({ ctx }) {
   const { me, users, members, probations, setProbations, log, toast, notify } = ctx;
@@ -17,18 +18,24 @@ export default function ProbationPage({ ctx }) {
   const add = () => {
     if (!form.memberId) return toast('Choose a member', 'err');
     if (!form.reason.trim() || !form.end) return toast('Reason and end date are required', 'err');
-    setProbations((p) => [{ id: uid('pr'), memberId: form.memberId, reason: form.reason, start: TODAY, end: form.end, by: me.id, roleAtTime: roleAtTime(), status: 'active', history: [{ ev: 'Started', date: TODAY }] }, ...p]);
-    log('PROBATION', `Placed ${users.find((u) => u.id === form.memberId)?.name} on probation`);
-    notify(`${users.find((u) => u.id === form.memberId)?.name} has been placed on probation`);
-    toast('Probation recorded'); setModal(null);
+    addRecord('probations', { memberId: form.memberId, reason: form.reason, start: TODAY, end: form.end }).then((rec) => {
+      setProbations((p) => [rec, ...p]);
+      log('PROBATION', `Placed ${users.find((u) => u.id === form.memberId)?.name} on probation`);
+      notify(`${users.find((u) => u.id === form.memberId)?.name} has been placed on probation`);
+      toast('Probation recorded'); setModal(null);
+    }).catch((e) => toast(saveError(e), 'err'));
   };
   const release = (pr) => {
-    setProbations((p) => p.map((x) => (x.id === pr.id ? { ...x, status: 'released', history: [...x.history, { ev: 'Released', date: TODAY }] } : x)));
-    log('PROBATION', `Released ${users.find((u) => u.id === pr.memberId)?.name} from probation`); toast('Member released — history retained');
+    changeRecord('probations', pr.id, { status: 'released', event: 'Released' }).then((rec) => {
+      setProbations((p) => p.map((x) => (x.id === rec.id ? rec : x)));
+      log('PROBATION', `Released ${users.find((u) => u.id === pr.memberId)?.name} from probation`); toast('Member released — history retained');
+    }).catch((e) => toast(saveError(e), 'err'));
   };
   const extend = (pr) => {
-    setProbations((p) => p.map((x) => (x.id === pr.id ? { ...x, end: form.end, history: [...x.history, { ev: 'Extended', date: TODAY }] } : x)));
-    log('PROBATION', `Extended probation for ${users.find((u) => u.id === pr.memberId)?.name}`); toast('Probation extended'); setModal(null);
+    changeRecord('probations', pr.id, { end: form.end, event: 'Extended' }).then((rec) => {
+      setProbations((p) => p.map((x) => (x.id === rec.id ? rec : x)));
+      log('PROBATION', `Extended probation for ${users.find((u) => u.id === pr.memberId)?.name}`); toast('Probation extended'); setModal(null);
+    }).catch((e) => toast(saveError(e), 'err'));
   };
   return (
     <div className="stack">

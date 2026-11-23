@@ -8,6 +8,7 @@ import StatCard from '../components/ui/StatCard';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
 import api from '../services/api';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function DuesPage({ ctx }) {
   const { me, users, members, dues, setDues, duesSettings, setDuesSettings, log, toast, notify } = ctx;
@@ -37,10 +38,12 @@ export default function DuesPage({ ctx }) {
 
   const saveSetting = () => {
     if (!+sForm.amount || !sForm.effectiveFrom) return toast('Enter amount and effective date', 'err');
-    setDuesSettings((p) => [...p, { id: uid('ds'), amount: +sForm.amount, effectiveFrom: sForm.effectiveFrom, by: me.id, roleAtTime: rolesOf(me).map((r) => ROLES[r].label).join(' + ') }]);
-    log('DUES_SET', `Set weekly dues to ${lira(+sForm.amount)} effective ${fmtDate(sForm.effectiveFrom)}`);
-    notify(`Weekly dues changed to ${lira(+sForm.amount)} from ${fmtDate(sForm.effectiveFrom)}`);
-    toast('New dues amount scheduled — old records untouched'); setSetOpen(false); setSForm({ amount: '', effectiveFrom: TODAY });
+    addRecord('duesSettings', { amount: +sForm.amount, effectiveFrom: sForm.effectiveFrom }).then((rec) => {
+      setDuesSettings((p) => [...p, rec]);
+      log('DUES_SET', `Set weekly dues to ${lira(+sForm.amount)} effective ${fmtDate(sForm.effectiveFrom)}`);
+      notify(`Weekly dues changed to ${lira(+sForm.amount)} from ${fmtDate(sForm.effectiveFrom)}`);
+      toast('New dues amount scheduled — old records untouched'); setSetOpen(false); setSForm({ amount: '', effectiveFrom: TODAY });
+    }).catch((e) => toast(saveError(e), 'err'));
   };
 
   return (

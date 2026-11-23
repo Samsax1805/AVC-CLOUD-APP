@@ -6,6 +6,7 @@ import Wave from '../components/ui/Wave';
 import Modal from '../components/ui/Modal';
 import Pagination, { usePaged } from '../components/ui/Pagination';
 import { uploadFile, deleteFile, mediaDuration, openFile, MAX_UPLOAD_MB } from '../services/files';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function VoicePage({ ctx }) {
   const { me, users, voiceNotes, setVoiceNotes, log, toast, playId, playProg, togglePlay } = ctx;
@@ -64,17 +65,18 @@ export default function VoicePage({ ctx }) {
     setSaving(true);
     try {
       const f = await uploadFile(pending.blob, pending.name);
-      setVoiceNotes((p) => [{ id: uid('v'), title: title.trim(), duration: fmtDur(pending.secs || 0), by: me.id, date: TODAY, seed: Math.floor(Math.random() * 30), fileUrl: f.id, fileName: f.name, mime: f.type, source: pending.source }, ...p]);
+      const rec = await addRecord('voiceNotes', { title: title.trim(), duration: fmtDur(pending.secs || 0), date: TODAY, seed: Math.floor(Math.random() * 30), fileUrl: f.id, fileName: f.name, mime: f.type, source: pending.source });
+      setVoiceNotes((p) => [rec, ...p]);
       log('VOICE', `${pending.source === 'uploaded' ? 'Uploaded' : 'Recorded'} voice note "${title.trim()}"`);
       toast('Voice note shared with all choristers');
       discard();
-    } catch (e) { toast(e.message, 'err'); } finally { setSaving(false); }
+    } catch (e) { toast(saveError(e), 'err'); } finally { setSaving(false); }
   };
-  const remove = (v) => {
+  const remove = (v) => removeRecord('voiceNotes', v.id).then(() => {
     deleteFile(v.fileUrl);
     setVoiceNotes((p) => p.filter((x) => x.id !== v.id));
     log('VOICE', `Deleted voice note "${v.title}"`); toast('Voice note deleted');
-  };
+  }).catch((e) => toast(saveError(e), 'err'));
 
   return (
     <div className="stack">

@@ -6,6 +6,7 @@ import Modal from '../components/ui/Modal';
 import StatCard from '../components/ui/StatCard';
 import Pagination, { usePaged } from '../components/ui/Pagination';
 import { uploadFile, deleteFile, openFile, sizeOf, MAX_UPLOAD_MB, DOC_ACCEPT } from '../services/files';
+import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 export default function ReceiptsPage({ ctx }) {
   const { me, users, receipts, setReceipts, log, toast } = ctx;
@@ -32,8 +33,11 @@ export default function ReceiptsPage({ ctx }) {
       try { up = await uploadFile(file); } catch (e) { setBusy(false); return toast(e.message, 'err'); }
       setBusy(false);
     }
-    setReceipts((p) => [{ id: uid('r'), title: form.title, amount: +form.amount, category: form.category, date: TODAY, by: me.id, ...(up && { fileUrl: up.id, fileName: up.name, mime: up.type }) }, ...p]);
-    log('RECEIPT', `Uploaded receipt "${form.title}" (${lira(+form.amount)})`); toast('Receipt uploaded'); setModal(false); setForm({ title: '', amount: '', category: 'Equipment' }); setFile(null);
+    try {
+      const rec = await addRecord('receipts', { title: form.title, amount: +form.amount, category: form.category, date: TODAY, ...(up && { fileUrl: up.id, fileName: up.name, mime: up.type }) });
+      setReceipts((p) => [rec, ...p]);
+      log('RECEIPT', `Uploaded receipt "${form.title}" (${lira(+form.amount)})`); toast('Receipt uploaded'); setModal(false); setForm({ title: '', amount: '', category: 'Equipment' }); setFile(null);
+    } catch (e) { toast(saveError(e), 'err'); }
   };
   return (
     <div className="stack">
@@ -59,7 +63,7 @@ export default function ReceiptsPage({ ctx }) {
                   <td className="muted">{fmtDate(r.date)}</td>
                   <td className="muted">{by?.name}</td>
                   <td className="r"><b>{lira(r.amount)}</b></td>
-                  {canManage && <td className="r"><button className="icon-btn" onClick={() => { deleteFile(r.fileUrl); setReceipts((p) => p.filter((x) => x.id !== r.id)); log('RECEIPT', `Deleted receipt "${r.title}"`); toast('Receipt deleted'); }}><Icon name="trash" size={14} /></button></td>}
+                  {canManage && <td className="r"><button className="icon-btn" onClick={() => removeRecord('receipts', r.id).then(() => { deleteFile(r.fileUrl); setReceipts((p) => p.filter((x) => x.id !== r.id)); log('RECEIPT', `Deleted receipt "${r.title}"`); toast('Receipt deleted'); }).catch((e) => toast(saveError(e), 'err'))}><Icon name="trash" size={14} /></button></td>}
                 </tr>
               );
             })}
