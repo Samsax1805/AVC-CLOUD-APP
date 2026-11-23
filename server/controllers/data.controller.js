@@ -141,7 +141,7 @@ exports.putAll = async (req, res) => {
       const docs = await M.find().lean();
       const existing = docs.map((d) => d.uid);
       // Birthday notices are created by the server, possibly after this browser loaded: never delete them here
-      const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec|fin)-/.test(String(id))));
+      const removed = existing.filter((id) => !ids.includes(id) && !(key === 'notifs' && /^(bday|elec|fin|set)-/.test(String(id))));
       const full = may(actorRoles, WRITERS[key] || []);
       const mayDelete = full && key !== 'elections' && key !== 'audit';
       if (removed.length && mayDelete && removed.length > MAX_DELETES_PER_SAVE) {

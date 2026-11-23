@@ -8,6 +8,8 @@ import Avatar from './ui/Avatar';
 import GlobalSearch from './GlobalSearch';
 import Dashboard from '../pages/Dashboard';
 import MusicLibrary from '../pages/MusicLibrary';
+import CalendarPage from '../pages/Calendar';
+import MyAccountPage from '../pages/MyAccount';
 import MinutesPage from '../pages/Minutes';
 import VoicePage from '../pages/VoiceNotes';
 import ReceiptsPage from '../pages/Receipts';
@@ -62,6 +64,8 @@ export default function AppShell() {
 
   const renderPage = () => {
     switch (page) {
+      case 'calendar': return <CalendarPage ctx={ctx} />;
+      case 'account': return me.system ? <Dashboard ctx={ctx} /> : <MyAccountPage ctx={ctx} />;
       case 'music': return <MusicLibrary ctx={ctx} />;
       case 'minutes': return <MinutesPage ctx={ctx} />;
       case 'voice': return <VoicePage ctx={ctx} />;

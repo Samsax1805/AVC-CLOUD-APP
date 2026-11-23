@@ -62,6 +62,7 @@ export const ACT_META = {
 export { POSTS } from '../utils/helpers';
 export const NAV_DEFS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', sec: 'Main' },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar', sec: 'Main' },
   { id: 'music', label: 'Music & Files', icon: 'music', sec: 'Main' },
   { id: 'voice', label: 'Voice Notes', icon: 'mic', sec: 'Main' },
   { id: 'psalmists', label: 'Psalmists', icon: 'calendar', sec: 'Main' },
@@ -77,6 +78,7 @@ export const NAV_DEFS = [
   { id: 'elections', label: 'Elections', icon: 'vote', sec: 'Governance' },
   { id: 'audit', label: 'Audit Log', icon: 'shield', sec: 'Governance' },
   { id: 'members', label: 'Members & Roles', icon: 'users', sec: 'Governance' },
+  { id: 'account', label: 'My Account', icon: 'note', sec: 'Account' },
   { id: 'profile', label: 'Settings', icon: 'user', sec: 'Account' },
 ];
 export const visibleNav = (me) => NAV_DEFS.filter((n) => {
@@ -86,5 +88,6 @@ export const visibleNav = (me) => NAV_DEFS.filter((n) => {
   if (n.id === 'members') return PERMS.manageMembers(me) || PERMS.approveMembers(me) || PERMS.addMembers(me);
   if (n.id === 'probation') return PERMS.manageProbation(me);
   if (n.id === 'finance') return !isAlumni(me);
+  if (n.id === 'account') return !me.system; // the system admin account is not a member
   return true;
 });
