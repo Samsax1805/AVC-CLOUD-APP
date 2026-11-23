@@ -16,6 +16,7 @@ r.post('/books', auth, wrap(c.createBook));
 r.put('/books/:id', auth, wrap(c.updateBook));
 r.delete('/books/:id', auth, wrap(c.removeBook));
 r.post('/books/:id/months', auth, wrap(c.createMonth));
+r.get('/sheets/:id/dues', auth, wrap(c.duesForMonth));
 r.get('/sheets/:id', auth, wrap(c.sheet));
 r.put('/sheets/:id', auth, wrap(c.saveMonth));
 r.post('/sheets/:id/action', auth, wrap(c.action));

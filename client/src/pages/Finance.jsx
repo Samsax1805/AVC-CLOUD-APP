@@ -383,7 +383,7 @@ function SheetView({ id, ctx, onBack, onOpen }) {
       )}
 
       {tab === 'entries' && editable && (
-        <Editor book={book} sheet={sheet} report={report} change={change} members={members} addCategory={addCategory} />
+        <Editor sheetId={id} book={book} sheet={sheet} report={report} change={change} members={members} addCategory={addCategory} />
       )}
       {tab === 'report' && <ReportView book={book} sheet={sheet} report={report} history={history} ytd={d.ytd} />}
       {tab === 'history' && insider && <HistoryTab d={d} perms={p} onDelete={() => setModal({ kind: 'delete' })} onOpen={onOpen} />}
@@ -432,7 +432,7 @@ function Flow({ d, perms, onAct, onAction }) {
 }
 
 // =====================================================================================================
-function Editor({ book, sheet, report, change, members, addCategory }) {
+function Editor({ sheetId, book, sheet, report, change, members, addCategory }) {
   const [entry, setEntry] = useState(null);
   const [filter, setFilter] = useState('all');
   const [addPeople, setAddPeople] = useState(false);
@@ -469,6 +469,8 @@ function Editor({ book, sheet, report, change, members, addCategory }) {
         <div className="fin-bal-c tot"><span className="tiny">All together ({book.base})</span><b>{fmtNum(report.combined.close)}</b><span className="tiny">B/F {fmtNum(report.combined.bf)}</span></div>
       </div>
 
+      <DuesSync sheetId={sheetId} book={book} sheet={sheet} change={change} />
+
       <div className="card">
         <div className="card-h fin-wrap-h">
           <h3>Income &amp; expenses</h3>
@@ -493,7 +495,7 @@ function Editor({ book, sheet, report, change, members, addCategory }) {
                 <span className={`fin-e-type ${e.type}`}>{e.type === 'income' ? 'In' : e.type === 'expense' ? 'Out' : 'Exch'}</span>
                 <span className="fin-e-main">
                   <b>{e.type === 'exchange' ? `${e.currency} → ${e.toCurrency}` : e.category || <i className="warn-text">No category</i>}</b>
-                  <span className="tiny muted">{[e.fund, e.details].filter(Boolean).join(' · ')}</span>
+                  <span className="tiny muted">{e.source === 'dues' && <span className="fin-src">Dues Records</span>}{[e.fund, e.details].filter(Boolean).join(' · ')}</span>
                 </span>
                 <span className="fin-e-amt">
                   <b className={e.type === 'income' ? 'in' : e.type === 'expense' ? 'out' : ''}>{e.type === 'exchange' ? `${fmtMoney(amt, e.currency)} → ${fmtMoney(toMinor(e.toAmount), e.toCurrency)}` : `${e.type === 'expense' ? '−' : '+'}${fmtMoney(amt, e.currency)}`}</b>
@@ -572,6 +574,88 @@ function Editor({ book, sheet, report, change, members, addCategory }) {
 }
 
 const NEW = '__new__';
+/* ---------- Dues Records → this month: nothing typed twice ---------- */
+// The Provost's Dues Records for this month are brought in as two income lines (weekly dues; lateness and
+// absence) and the member dues table. Bringing them in again replaces the earlier lines, so nothing is counted twice.
+const duesCats = (book) => ({
+  weekly: (book.incomeCats || []).find((c) => /due/i.test(c) && !/late|absen/i.test(c)) || 'Weekly Dues',
+  late: (book.incomeCats || []).find((c) => /late|absen/i.test(c)) || 'Lateness/Absenteeism',
+});
+const lastDay = (month) => `${month}-${String(monthDays(month)).padStart(2, '0')}`;
+function DuesSync({ sheetId, book, sheet, change }) {
+  const [info, setInfo] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [dropTyped, setDropTyped] = useState(false);
+  useEffect(() => { api.get(`/finance/sheets/${sheetId}/dues`).then(({ data }) => setInfo(data)).catch(() => setInfo({ failed: true })); }, [sheetId]);
+  if (!info) return null;
+  if (info.failed) return <div className="card fin-dues"><p className="muted small" style={{ margin: 0 }}>Dues Records could not be checked just now.</p></div>;
+  const cats = duesCats(book);
+  const t = info.totals;
+  const late = Math.round((t.absence + t.lateness) * 100) / 100;
+  const imported = sheet.entries.filter((e) => e.source === 'dues');
+  const importedW = imported.filter((e) => e.category === cats.weekly).reduce((a, e) => a + toMinor(e.amount), 0);
+  const importedL = imported.filter((e) => e.category === cats.late).reduce((a, e) => a + toMinor(e.amount), 0);
+  const inStep = imported.length > 0 && importedW === toMinor(t.weekly) && importedL === toMinor(late);
+  const typed = sheet.entries.filter((e) => e.type === 'income' && e.source !== 'dues' && [cats.weekly, cats.late].includes(e.category));
+  const apply = () => {
+    const fund = (book.funds || []).find((f) => /general/i.test(f)) || (book.funds || [])[0] || '';
+    const date = lastDay(sheet.month);
+    const word = (n) => `${n} payment${n === 1 ? '' : 's'}`;
+    const nW = info.members.reduce((a, m) => a + (m.weekly > 0 ? 1 : 0), 0);
+    const lines = [
+      t.weekly > 0 && { id: uid('fe'), date, type: 'income', category: cats.weekly, fund, currency: book.base, amount: String(t.weekly), details: `From Dues Records: ${nW} member${nW === 1 ? '' : 's'}`, source: 'dues' },
+      late > 0 && { id: uid('fe'), date, type: 'income', category: cats.late, fund, currency: book.base, amount: String(late), details: `From Dues Records: absence ${fmtNum(toMinor(t.absence))}, lateness ${fmtNum(toMinor(t.lateness))}`, source: 'dues' },
+    ].filter(Boolean);
+    change((cur) => {
+      const entries = cur.entries.filter((e) => e.source !== 'dues' && !(dropTyped && e.type === 'income' && [cats.weekly, cats.late].includes(e.category)));
+      const byId = new Map(info.members.map((m) => [m.memberId, m]));
+      const amount = (v) => (v > 0 ? String(v) : '');
+      const kept = cur.members.map((row) => {
+        if (!row.memberId) return row;
+        const m = byId.get(row.memberId);
+        return { ...row, dues: amount(m?.weekly || 0), lateness: amount(m ? Math.round((m.absence + m.lateness) * 100) / 100 : 0) };
+      });
+      const listed = new Set(cur.members.map((r) => r.memberId).filter(Boolean));
+      const added = info.members.filter((m) => m.memberId && !listed.has(m.memberId))
+        .map((m) => ({ id: uid('fm'), memberId: m.memberId, name: m.name, dues: amount(m.weekly), lateness: amount(Math.round((m.absence + m.lateness) * 100) / 100) }));
+      return { entries: [...entries, ...lines], members: [...kept, ...added] };
+    });
+    setOpen(false);
+  };
+  return (
+    <div className={`card fin-dues ${inStep ? 'ok' : ''}`}>
+      <div className="fin-dues-row">
+        <Icon name="dollar" size={18} />
+        <div className="fin-dues-txt">
+          <b>Dues Records for {monthLabel(sheet.month)}</b>
+          <span className="small">{info.count ? `${info.count} payment${info.count === 1 ? '' : 's'}: weekly dues ${fmtMoney(toMinor(t.weekly), book.base)}, lateness & absence ${fmtMoney(toMinor(late), book.base)}` : 'No dues recorded for this month yet.'}</span>
+          {inStep && <span className="small fin-dues-ok"><Icon name="check" size={12} /> In step with Dues Records</span>}
+          {imported.length > 0 && !inStep && <span className="small warn-text">Dues Records have changed since they were brought in: update to match.</span>}
+        </div>
+        {info.count > 0 && !inStep && <button className="btn btn-sm btn-pri" onClick={() => setOpen(true)}>{imported.length ? 'Update from Dues Records' : 'Bring in from Dues Records'}</button>}
+      </div>
+      <Modal open={open} onClose={() => setOpen(false)} title="Bring in from Dues Records">
+        <p className="small">For <b>{monthLabel(sheet.month)}</b>, Dues Records hold {info.count} payment{info.count === 1 ? '' : 's'} (counted by the date each was received):</p>
+        <div className="fin-dues-sum">
+          <div><span>{cats.weekly}</span><b>{fmtMoney(toMinor(t.weekly), book.base)}</b></div>
+          <div><span>{cats.late}</span><b>{fmtMoney(toMinor(late), book.base)}</b></div>
+        </div>
+        <ul className="small fin-dues-list">
+          <li>{imported.length ? 'The lines brought in before are replaced by' : 'Adds'} {[t.weekly > 0 && 'a Weekly Dues line', late > 0 && 'a Lateness/Absenteeism line'].filter(Boolean).join(' and ')}, dated {new Date(`${lastDay(sheet.month)}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}.</li>
+          <li>The member dues table is filled in for {info.members.length} member{info.members.length === 1 ? '' : 's'}; members listed with no dues this month show 0.</li>
+          <li>A copy of the month is kept first, so <b>Roll back</b> can undo this.</li>
+        </ul>
+        {typed.length > 0 && (
+          <label className="el-pick fin-dues-typed"><input type="checkbox" checked={dropTyped} onChange={(e) => setDropTyped(e.target.checked)} />
+            <span>Also remove the {typed.length} {cats.weekly} / {cats.late} line{typed.length === 1 ? '' : 's'} typed by hand ({fmtMoney(typed.reduce((a, e) => a + toMinor(e.amount), 0), book.base)}), so dues are not counted twice</span></label>
+        )}
+        {book.base !== 'TL' && <p className="small warn-text">Dues Records are kept in Turkish Lira; this account's main currency is {book.base}.</p>}
+        <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setOpen(false)}>Cancel</button><button className="btn btn-pri" onClick={apply}>{imported.length ? 'Update' : 'Bring them in'}</button></div>
+      </Modal>
+    </div>
+  );
+}
+
 function Pick({ label, value, options, onChange, newLabel }) {
   const [typing, setTyping] = useState(false);
   const all = [...new Set([...options, ...(value ? [value] : [])])];

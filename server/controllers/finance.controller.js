@@ -47,6 +47,7 @@ const cleanEntry = (e) => {
   };
   if (type === 'exchange') Object.assign(out, { toCurrency: str(e?.toCurrency, 8).toUpperCase(), toAmount: Math.abs(num(e?.toAmount)) });
   else Object.assign(out, { category: str(e?.category, 60), fund: str(e?.fund, 60) });
+  if (e?.source === 'dues' && type === 'income') out.source = 'dues'; // brought in from Dues Records
   return out;
 };
 const cleanMember = (m) => ({
@@ -272,7 +273,9 @@ exports.saveMonth = async (req, res) => {
   // A point to roll back to: before each sitting of edits (a new one after 10 minutes, or by someone else)
   const lastV = s.versions[s.versions.length - 1];
   // ...and always before a line or member is removed, so one deletion can be undone on its own
-  const removing = (Array.isArray(body.entries) && body.entries.length < s.entries.length) || (Array.isArray(body.members) && body.members.length < s.members.length);
+  // (a line counts as removed when its id is gone, even if a new line took its place)
+  const gone = (now, before) => Array.isArray(now) && (before || []).some((x) => x?.id && !now.some((y) => y?.id === x.id));
+  const removing = gone(body.entries, s.entries) || gone(body.members, s.members);
   if (removing) keepVersion(s, `Before a line was removed by ${by.name}`, by);
   else if (!lastV || lastV.byId !== by.id || Date.now() - new Date(lastV.at).getTime() > 10 * 60 * 1000) keepVersion(s, `Before changes by ${by.name}`, by);
   if (Array.isArray(body.entries)) s.entries = body.entries.slice(0, LIMITS.entries).map(cleanEntry);
@@ -397,3 +400,35 @@ exports.removeMonth = async (req, res) => {
 };
 
 exports.perms = perms;
+
+// GET /api/finance/sheets/:id/dues — what Dues Records hold for this month, so the Finance Secretary
+// can bring it in instead of typing it twice. Payments are counted in the month they were received
+// (their date). Weekly dues go in the "dues" column; absence and lateness dues in "lateness".
+exports.duesForMonth = async (req, res) => {
+  const p = perms(req.user.roles);
+  if (!insider(p)) return fail(res, 403, 'Only the Finance Secretary, Secretary, President or an admin can see this');
+  const s = await FinanceSheet.findById(req.params.id, { month: 1, bookId: 1 }).lean().catch(() => null);
+  if (!s) return fail(res, 404, 'That month was not found');
+  const { Due } = require('../models/records');
+  const records = await Due.find({ date: { $gte: `${s.month}-01`, $lte: `${s.month}-31` } }, { memberId: 1, type: 1, amount: 1, date: 1, period: 1 }).lean();
+  const ids = [...new Set(records.map((r) => r.memberId).filter((x) => /^[0-9a-f]{24}$/.test(String(x || ''))))];
+  const names = Object.fromEntries((await User.find({ _id: { $in: ids } }, { name: 1 }).lean()).map((u) => [String(u._id), u.name]));
+  const cents = (v) => Math.round((Number(v) || 0) * 100);
+  const by = new Map();
+  const totals = { weekly: 0, absence: 0, lateness: 0 };
+  for (const r of records) {
+    const type = ['weekly', 'absence', 'lateness'].includes(r.type) ? r.type : 'weekly';
+    const id = String(r.memberId || '');
+    if (!by.has(id)) by.set(id, { memberId: id, name: names[id] || 'Former member', weekly: 0, absence: 0, lateness: 0, count: 0 });
+    const row = by.get(id);
+    row[type] += cents(r.amount); row.count += 1;
+    totals[type] += cents(r.amount);
+  }
+  const major = (c) => c / 100;
+  res.json({
+    month: s.month,
+    count: records.length,
+    totals: { weekly: major(totals.weekly), absence: major(totals.absence), lateness: major(totals.lateness) },
+    members: [...by.values()].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ ...m, weekly: major(m.weekly), absence: major(m.absence), lateness: major(m.lateness) })),
+  });
+};

@@ -1087,3 +1087,16 @@ i.bday{background:#ec4899;border-radius:2px}
 .shell.dark .push-ios{background:#1a2c55}
 .page-loading{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:13.5px}
 .page-loading .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--gold2);border-radius:999px;display:inline-block}
+
+/* Finance: Dues Records → this month */
+.fin-dues{border-left:4px solid var(--gold)}
+.fin-dues.ok{border-left-color:#059669}
+.fin-dues-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.fin-dues-txt{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px}
+.fin-dues-ok{color:#047857;display:inline-flex;align-items:center;gap:4px}
+.fin-dues-sum{display:grid;gap:6px;padding:10px 12px;border-radius:10px;background:var(--cream);margin:8px 0}
+.fin-dues-sum div{display:flex;justify-content:space-between;gap:10px}
+.fin-dues-list{margin:8px 0;padding-left:18px;display:grid;gap:4px}
+.fin-dues-typed{margin:8px 0}
+.fin-src{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#047857;background:#ecfdf5;border-radius:999px;padding:1px 7px;margin-right:6px}
+.shell.dark .fin-dues-sum{background:#1a2c55}.shell.dark .fin-src{background:#0f3b30;color:#6ee7b7}
