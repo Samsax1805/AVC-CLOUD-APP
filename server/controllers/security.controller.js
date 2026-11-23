@@ -111,14 +111,8 @@ const emailService = require('../services/email.service');
 const codes = new Map(); // userId → { hash, exp, tries } (one server process)
 const isAdmin = (req) => !(req.user.roles || []).includes('alumni') && (req.user.roles || []).includes('admin');
 const today = () => new Date().toISOString().slice(0, 10);
-const addHistory = async (userId, role, granted) => {
-  const cur = await Misc.findOne({ key: 'roleHistory' }).lean();
-  const list = Array.isArray(cur?.data) ? cur.data : [];
-  const next = granted
-    ? [{ id: `rh-${crypto.randomUUID().slice(0, 8)}`, userId, role, granted: today(), revoked: null }, ...list]
-    : list.map((h) => (h.userId === userId && h.role === role && !h.revoked ? { ...h, revoked: today() } : h));
-  await Misc.updateOne({ key: 'roleHistory' }, { key: 'roleHistory', data: next }, { upsert: true });
-};
+const roleHistory = require('../services/roleHistory');
+const addHistory = (userId, role, isGrant) => (isGrant ? roleHistory.granted(userId, role) : roleHistory.revoked(userId, role));
 
 // POST /api/security/admin-role/code — for an admin who signs in with Google only (no password)
 exports.adminCode = async (req, res) => {

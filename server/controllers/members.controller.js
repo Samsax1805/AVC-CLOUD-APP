@@ -112,3 +112,41 @@ exports.section = async (req, res) => {
   await security.recordAction(req, 'part_changed', user, `Part changed from ${before || 'not set'} to ${section}`);
   res.json({ ok: true });
 };
+
+// POST /api/members/:id/roles { add: role } or { remove: role } — the President and admins grant and remove
+// executive roles one change at a time. "Old Member" replaces every executive role. The admin role itself is
+// changed only through the confirmed step on the Security side (security.controller.js adminRole).
+const ROLE_LABEL = require('./data.controller').ROLE_LABEL;
+const GRANTABLE = ['president', 'secretary', 'finance', 'provost', 'pro', 'choirmaster', 'asstchoirmaster', 'custodian', 'electoral', 'alumni'];
+const roleHistory = require('../services/roleHistory');
+exports.roles = async (req, res) => {
+  if (!has(req, MANAGERS) || (req.user.roles || []).includes('alumni')) return res.status(403).json({ msg: 'Only the President or an admin can change roles' });
+  const add = req.body?.add; const remove = req.body?.remove;
+  const role = add || remove;
+  if (!GRANTABLE.includes(role) || (add && remove)) return res.status(400).json({ msg: 'Choose a role' });
+  const user = await load(req, res);
+  if (!user) return;
+  if (user.status !== 'active') return res.status(400).json({ msg: 'Only an active member can be given a role' });
+  const before = user.roles || ['member'];
+  let next;
+  if (add) {
+    if (before.includes(role)) return res.status(400).json({ msg: `${user.name} already has this role` });
+    if (role === 'alumni' && before.includes('admin')) return res.status(400).json({ msg: 'Hand over or give up the admin role before making this member an Old Member' });
+    if (before.includes('alumni') && role !== 'alumni') return res.status(400).json({ msg: 'An Old Member cannot hold an executive role' });
+    next = role === 'alumni' ? ['alumni'] : [...before.filter((r) => r !== 'member'), role];
+  } else {
+    if (!before.includes(role)) return res.status(400).json({ msg: `${user.name} does not have this role` });
+    next = before.filter((r) => r !== role);
+    if (!next.length) next = ['member'];
+  }
+  // Only applied if nobody else changed this member's roles in the meantime
+  const raw = await User.findById(user._id, { roles: 1 }).lean();
+  const same = Array.isArray(raw?.roles) && raw.roles.length ? { roles: raw.roles } : { $or: [{ roles: { $exists: false } }, { roles: { $size: 0 } }] };
+  const updated = await User.findOneAndUpdate({ _id: user._id, ...same }, { $set: { roles: next } }, { new: true });
+  if (!updated) return res.status(409).json({ msg: 'Someone else just changed this member\'s roles: refresh the page' });
+  const gained = next.filter((r) => r !== 'member' && !before.includes(r));
+  const lost = before.filter((r) => r !== 'member' && !next.includes(r));
+  for (const r of gained) { await roleHistory.granted(user._id, r); await security.recordAction(req, 'role_granted', updated, `Granted ${ROLE_LABEL[r] || r}`); }
+  for (const r of lost) { await roleHistory.revoked(user._id, r); await security.recordAction(req, 'role_revoked', updated, `Removed ${ROLE_LABEL[r] || r}`); }
+  res.json({ ok: true, member: mapMember(updated.toObject()), roleHistory: await roleHistory.list() });
+};

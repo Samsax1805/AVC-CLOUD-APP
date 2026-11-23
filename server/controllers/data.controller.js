@@ -48,7 +48,7 @@ exports.getAll = async (req, res) => {
     const out = {};
     for (const [key, M] of Object.entries(KEYS)) {
       const docs = await M.find().lean();
-      out[key] = docs.map(({ _id, __v, createdAt, updatedAt, ...rest }) => ({ ...rest, id: rest.uid }));
+      out[key] = docs.map(({ _id, __v, createdAt, updatedAt, ...rest }) => ({ ...rest, id: rest.uid, ...(key === 'sessions' ? { records: rest.records || {}, checkins: rest.checkins || [] } : {}) }));
     }
     out.elections = await elections.listFor(req.user.id); // vote totals only, never who chose whom
     out.electionStatus = await require('./electionCycle.controller').status(req.user.roles || []);
@@ -131,6 +131,7 @@ const keepCheckins = (next, before) => {
 
 // Elections run through /api/elections (electionCycle.controller.js); old poll records here are read-only history.
 
+// No longer routed (the whole-choir save is retired, see routes/data.routes.js); kept for reference
 exports.putAll = async (req, res) => {
   try {
     const body = req.body || {};

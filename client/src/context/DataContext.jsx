@@ -115,24 +115,8 @@ export const DataProvider = ({ children }) => {
     return () => { current = false; };
   }, [userId, loadAttempt]);
 
-  /* Debounced persist into the real collections */
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    if (!user || loadingData || !loadOk.current) return;
-    const t = setTimeout(() => {
-      const sent = users.map((u) => ({ ...u, rolesBase: baseRoles.current[u.id] || u.roles }));
-      // Attendance, dues, debts, songs, voice notes, minutes, receipts, announcements, documents,
-      // probation and dues settings are saved one record at a time by their pages (/api/records)
-      api.put('/data', {
-        users: sent, elections, nominations, audit, pendingUsers, roleHistory, notifs, pendingNoms,
-      }).then(() => { users.forEach((u) => { baseRoles.current[u.id] = u.roles; }); }).catch((err) => {
-        if (err.response?.status === 409) { loadOk.current = false; toast(err.response.data?.msg || 'Save refused — please refresh the page.', 'err'); }
-        else if (err.response?.status !== 401) console.warn('Data save failed.');
-      });
-    }, 900);
-    return () => clearTimeout(t);
-  }, [users, elections, nominations, audit, pendingUsers, roleHistory, notifs, pendingNoms, user, loadingData]);
+  // There is no whole-choir save any more: every change is saved on its own by the page that makes it
+  // (/api/records, /api/members, /api/notices, /api/audit and each feature's own routes).
 
   // One shared player: real audio for uploaded files, a simulated progress bar for older records
   const audio = useRef(null);
@@ -145,7 +129,23 @@ export const DataProvider = ({ children }) => {
   const me = users.find((u) => u.email === user?.email) || null;
 
   const log = (action, detail) => setAudit((p) => [{ id: uid('a'), userId: me?.id || 'system', role: me ? rolesOf(me).map((r) => ROLES[r].label).join(' + ') : 'System', action, detail, time: new Date().toISOString().slice(0, 16).replace('T', ' ') }, ...(p || [])]);
-  const notify = (text) => setNotifs((p) => [{ id: uid('n'), text, date: TODAY, readBy: [] }, ...(p || [])]);
+  // …and the entry is saved by the server under the real author
+  const logSaved = (action, detail) => { log(action, detail); api.post('/audit', { action, detail }).catch(() => {}); };
+  // An officer's notice to every member (also sent to their phones)
+  const notify = (text) => api.post('/notices', { text }).then(({ data }) => setNotifs((p) => [data.notice, ...(p || [])])).catch(() => {});
+  // Opening the bell: every notice counts as read for this member
+  const markAllRead = () => {
+    if (!me) return;
+    setNotifs((p) => (p || []).map((n) => ((n.readBy || []).includes(me.id) ? n : { ...n, readBy: [...(n.readBy || []), me.id] })));
+    api.post('/notices/read').catch(() => {});
+  };
+  // Granting or removing an executive role, one change at a time
+  const changeRole = async (person, change) => {
+    const { data } = await api.post(`/members/${person.id}/roles`, change).catch((e) => { throw new Error(e.response?.data?.msg || 'The role was not changed. Try again.'); });
+    setUsers((p) => p.map((x) => (x.id === person.id ? { ...x, ...data.member } : x)));
+    setRoleHistory(data.roleHistory || []);
+    return data.member;
+  };
   const togglePlay = async (id, fileId) => {
     stopAudio();
     if (playId === id) { setPlayId(null); setPlayProg(0); return; }
@@ -192,7 +192,7 @@ export const DataProvider = ({ children }) => {
 
   const retryLoad = () => setLoadAttempt((n) => n + 1);
 
-  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log, toast, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log: logSaved, toast, markAllRead, changeRole, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

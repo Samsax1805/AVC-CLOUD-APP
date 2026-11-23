@@ -20,7 +20,7 @@ const yearNow = new Date().getFullYear();
 const TITLES = [`${yearNow} Executive Elections`, `${yearNow} By-election`, `${yearNow + 1} Executive Elections`];
 
 export default function ElectionsPage({ ctx }) {
-  const { me, users = [], members = [], toast, log, setUsers, setRoleHistory, notify, setElectionStatus } = ctx;
+  const { me, users = [], members = [], toast, log, notify, setElectionStatus, changeRole } = ctx;
   const [state, setState] = useState(null);
   const [failed, setFailed] = useState(false);
   const [tab, setTab] = useState('current');
@@ -166,17 +166,17 @@ export default function ElectionsPage({ ctx }) {
       {tab === 'committee' && (
         <CommitteeTab committee={committee} members={members} users={users} canAppoint={perms.appoint} cycle={cycle}
           appoint={(u) => {
-            setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: [...x.roles.filter((y) => y !== 'member'), 'electoral'] } : x)));
-            setRoleHistory((p) => [{ id: uid('rh'), userId: u.id, role: 'electoral', granted: TODAY, revoked: null }, ...p]);
-            log('ROLE_GRANTED', `Appointed ${u.name} to the Electoral Committee`);
-            notify(`${u.name} joined the Electoral Committee`);
-            toast(`${u.name} is now on the Electoral Committee`);
+            changeRole(u, { add: 'electoral' }).then(() => {
+              log('ROLE_GRANTED', `Appointed ${u.name} to the Electoral Committee`);
+              notify(`${u.name} joined the Electoral Committee`);
+              toast(`${u.name} is now on the Electoral Committee`);
+            }).catch((e) => toast(e.message, 'err'));
           }}
           remove={(u) => {
-            setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: x.roles.filter((y) => y !== 'electoral') } : x)));
-            setRoleHistory((p) => p.map((h) => (h.userId === u.id && h.role === 'electoral' && !h.revoked ? { ...h, revoked: TODAY } : h)));
-            log('ROLE_REVOKED', `Removed ${u.name} from the Electoral Committee`);
-            toast(`${u.name} left the Electoral Committee`);
+            changeRole(u, { remove: 'electoral' }).then(() => {
+              log('ROLE_REVOKED', `Removed ${u.name} from the Electoral Committee`);
+              toast(`${u.name} left the Electoral Committee`);
+            }).catch((e) => toast(e.message, 'err'));
           }} />
       )}
 

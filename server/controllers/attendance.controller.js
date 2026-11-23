@@ -35,7 +35,7 @@ exports.qr = async (req, res) => {
   if (!DATE.test(date)) return res.status(400).json({ msg: 'Choose the session date' });
   const title = String(req.body?.title || '').trim().slice(0, 120) || 'Sunday Worship Service';
   // The session exists from the moment its code is shown, so check-ins have somewhere to land
-  await Session.updateOne({ date }, { $setOnInsert: { uid: `att-${crypto.randomUUID().slice(0, 12)}`, date, title, checkins: [] } }, { upsert: true });
+  await Session.updateOne({ date }, { $setOnInsert: { uid: `att-${crypto.randomUUID().slice(0, 12)}`, date, title, records: {}, checkins: [] } }, { upsert: true });
   const exp = Date.now() + LIFE_MS;
   res.json({ code: makeCode(date, exp), exp, date, session: shape(await Session.findOne({ date }).lean()) });
 };

@@ -28,6 +28,7 @@ app.use('/api/attendance', require('./routes/attendance.routes'));
 app.use('/api/calendar', require('./routes/calendar.routes'));
 app.use('/api/push', require('./routes/push.routes'));
 app.use('/api/records', require('./routes/records.routes'));
+app.use('/api', require('./routes/notices.routes'));
 
 app.use((req, res) => {
   res.status(404).json({ msg: `Route not found: ${req.method} ${req.path}` });

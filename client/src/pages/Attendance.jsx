@@ -67,11 +67,12 @@ export default function AttendancePage({ ctx }) {
     try {
       const { data } = await api.post('/records/sessions', { date: attDate, title: attTitle, records: changed });
       setSessions((prev) => [...prev.filter((s) => s.date !== attDate), data.record].sort((a, b) => (a.date < b.date ? 1 : -1)));
-      setRecords({ ...data.record.records });
+      setRecords({ ...(data.record.records || {}) });
       log('ATTENDANCE', `Marked attendance for ${attTitle} (${fmtDate(attDate)})`); toast('Attendance saved');
     } catch (e) { toast(e.response?.data?.msg || 'Attendance was not saved. Check your connection and try again.', 'err'); } finally { setSaving(false); }
   };
-  const mine = sessions.map((s) => ({ date: s.date, st: s.records[me.id] || 'unmarked' }));
+  // A session can exist with no marks yet (made when the Provost shows its QR code)
+  const mine = sessions.map((s) => ({ date: s.date, st: (s.records || {})[me.id] || 'unmarked' }));
   const myMarked = mine.filter((m) => m.st !== 'unmarked');
   const myRate = myMarked.length ? Math.round((myMarked.filter((m) => m.st === 'present').length / myMarked.length) * 100) : 0;
   const rosterPaged = usePaged(members, 15, attDate);
@@ -147,7 +148,7 @@ export default function AttendancePage({ ctx }) {
           <thead><tr><th>Date</th><th>Session</th><th>Present</th><th>Absent</th><th>Late</th><th>Excused</th><th>Rate</th></tr></thead>
           <tbody>
             {historyPaged.items.map((s) => {
-              const vals = Object.values(s.records);
+              const vals = Object.values(s.records || {});
               const p = vals.filter((v) => v === 'present').length;
               const a = vals.filter((v) => v === 'absent').length;
               const l = vals.filter((v) => v === 'late').length;
@@ -172,7 +173,7 @@ export default function AttendancePage({ ctx }) {
         {detail && (
           <div className="stack sm-gap">
             {detailPaged.items.map((u) => {
-              const st = detail.records[u.id] || 'unmarked';
+              const st = (detail.records || {})[u.id] || 'unmarked';
               const cin = (detail.checkins || []).find((c) => c.userId === u.id);
               return (
                 <div className="roster-row" key={u.id} style={{ border: '1px solid #f0e9da', borderRadius: 10 }}>

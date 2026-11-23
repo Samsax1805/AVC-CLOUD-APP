@@ -60,7 +60,7 @@ export default function AppShell() {
   const electionBadge = es?.stage === 'live' ? 'LIVE' : es?.stage === 'nominations' ? 'Open' : es?.stage === 'published' ? 'New' : null;
   const unread = notifs.filter((n) => !(n.readBy || []).includes(me.id)).length;
 
-  const openNotifs = () => { setNotifOpen((o) => !o); if (!notifOpen) setNotifs((p) => (p || []).map((n) => ((n.readBy || []).includes(me.id) ? n : { ...n, readBy: [...(n.readBy || []), me.id] }))); };
+  const openNotifs = () => { setNotifOpen((o) => !o); if (!notifOpen && unread > 0) data.markAllRead?.(); };
   const sections = [...new Set(nav.map((n) => n.sec))];
 
   const renderPage = () => {

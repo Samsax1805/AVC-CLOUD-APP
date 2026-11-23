@@ -10,5 +10,6 @@ r.post('/:id/section', auth, safe(c.section));
 r.post('/:id/reject', auth, safe(c.reject));
 r.post('/:id/deactivate', auth, safe(c.deactivate));
 r.post('/:id/reactivate', auth, safe(c.reactivate));
+r.post('/:id/roles', auth, safe(c.roles));
 
 module.exports = r;

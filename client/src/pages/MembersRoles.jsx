@@ -20,7 +20,7 @@ const VIEWS = [
 ];
 
 export default function MembersRoles({ ctx }) {
-  const { me, users, setUsers, pendingUsers, roleHistory, setRoleHistory, log, toast, notify, memberAction, addMember, setMemberPart, retryLoad } = ctx;
+  const { me, users, pendingUsers, roleHistory, log, toast, notify, memberAction, addMember, setMemberPart, retryLoad, changeRole } = ctx;
   const [adminChange, setAdminChange] = useState(null); // { action: 'grant' | 'revoke', user }
   const canManage = PERMS.manageMembers(me);
   const canAdd = PERMS.addMembers(me);
@@ -42,32 +42,29 @@ export default function MembersRoles({ ctx }) {
     if (!r) return toast('Choose a role to grant', 'err');
     if (u.roles.includes(r)) return toast('User already has this role', 'err');
     if (r === 'alumni') return setConfirm({ action: 'alumni', u });
-    setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: [...x.roles.filter((y) => y !== 'member'), r] } : x)));
-    setRoleHistory((p) => [{ id: uid('rh'), userId: u.id, role: r, granted: TODAY, revoked: null }, ...p]);
-    log('ROLE_GRANTED', `Granted ${ROLES[r].label} to ${u.name}`);
-    notify(`${u.name} was granted ${ROLES[r].label}`);
-    toast(`${ROLES[r].label} granted — navbar updates instantly`);
-    setGrant((g) => ({ ...g, [u.id]: '' }));
+    changeRole(u, { add: r }).then(() => {
+      log('ROLE_GRANTED', `Granted ${ROLES[r].label} to ${u.name}`);
+      notify(`${u.name} was granted ${ROLES[r].label}`);
+      toast(`${ROLES[r].label} granted — navbar updates instantly`);
+      setGrant((g) => ({ ...g, [u.id]: '' }));
+    }).catch((e) => toast(e.message, 'err'));
   };
   // Old Member replaces every executive role (history keeps the old ones)
   const makeAlumni = (u) => {
-    setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: ['alumni'] } : x)));
-    setRoleHistory((p) => [
-      { id: uid('rh'), userId: u.id, role: 'alumni', granted: TODAY, revoked: null },
-      ...p.map((h) => (h.userId === u.id && !h.revoked ? { ...h, revoked: TODAY } : h)),
-    ]);
-    log('ROLE_GRANTED', `Made ${u.name} an Old Member`);
-    notify(`${u.name} is now an Old Member`);
-    toast(`${u.name} is now an Old Member (view-only)`);
-    setGrant((g) => ({ ...g, [u.id]: '' }));
+    changeRole(u, { add: 'alumni' }).then(() => {
+      log('ROLE_GRANTED', `Made ${u.name} an Old Member`);
+      notify(`${u.name} is now an Old Member`);
+      toast(`${u.name} is now an Old Member (view-only)`);
+      setGrant((g) => ({ ...g, [u.id]: '' }));
+    }).catch((e) => toast(e.message, 'err'));
   };
   const doRevoke = (u, r) => {
     if (r === 'admin' && adminCount <= 1) return toast('Cannot remove the last admin', 'err');
-    setUsers((p) => p.map((x) => (x.id === u.id ? { ...x, roles: x.roles.filter((y) => y !== r) } : x)));
-    setRoleHistory((p) => p.map((h) => (h.userId === u.id && h.role === r && !h.revoked ? { ...h, revoked: TODAY } : h)));
-    log('ROLE_REVOKED', `Revoked ${ROLES[r].label} from ${u.name}`);
-    notify(`${u.name}'s ${ROLES[r].label} privilege was revoked`);
-    toast(`${ROLES[r].label} revoked — history retained`);
+    changeRole(u, { remove: r }).then(() => {
+      log('ROLE_REVOKED', `Revoked ${ROLES[r].label} from ${u.name}`);
+      notify(`${u.name}'s ${ROLES[r].label} privilege was revoked`);
+      toast(`${ROLES[r].label} revoked — history retained`);
+    }).catch((e) => toast(e.message, 'err'));
   };
   const run = async (action, p) => {
     setBusy(true);
