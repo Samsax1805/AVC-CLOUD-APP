@@ -42,7 +42,9 @@ const Probation = model('Probation', new Schema({
   history: [{ ev: String, date: String, by: String, note: String }],
 }, opts));
 
-const AuditLog = model('AuditLog', new Schema({ uid: uidField, userId: String, role: String, action: String, detail: String, time: String }, opts));
+const auditSchema = new Schema({ uid: uidField, userId: String, role: String, action: String, detail: String, time: String }, opts);
+auditSchema.index({ time: -1, _id: -1 }); // the Audit Log page reads it newest first, a page at a time
+const AuditLog = model('AuditLog', auditSchema);
 
 const DuesSetting = model('DuesSetting', new Schema({ uid: uidField, amount: Number, effectiveFrom: String, by: String, roleAtTime: String }, opts));
 

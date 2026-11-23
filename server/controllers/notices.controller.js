@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { Notification, AuditLog } = require('../models/records');
+const User = require('../models/User');
 const push = require('../services/push.service');
 const { lagosNow } = require('../services/birthday.service');
 const { ROLE_LABEL } = require('./data.controller');
@@ -39,4 +40,31 @@ exports.audit = async (req, res) => {
     userId: req.user.id, role: roles.map((r) => ROLE_LABEL[r] || r).join(' + ') || 'Member', action, detail, time: now().time,
   });
   res.json({ ok: true, entry: shape(made.toObject()) });
+};
+
+// GET /api/audit?page=&q=&action=&user= — one page of the Audit Log, newest first (Admin and President only,
+// the same people who can open the Audit Log page). q searches the action, details, role and member's name.
+const AUDIT_VIEWERS = ['admin', 'president'];
+const PAGE = 50;
+const escape = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+exports.auditList = async (req, res) => {
+  if (!may(req.user.roles, AUDIT_VIEWERS)) return res.status(403).json({ msg: 'Only the President or an admin can view the Audit Log' });
+  const q = text(req.query.q, 100);
+  const action = text(req.query.action, 40);
+  const user = text(req.query.user, 40);
+  const limit = Math.min(PAGE, Math.max(1, parseInt(req.query.limit, 10) || PAGE));
+  const filter = {};
+  if (action && action !== 'all') filter.action = action;
+  if (user && user !== 'all') filter.userId = user;
+  if (q) {
+    const re = new RegExp(escape(q), 'i');
+    const named = await User.find({ name: re }, { _id: 1 }).lean();
+    filter.$or = [{ action: re }, { detail: re }, { role: re }, { time: re }, { userId: { $in: named.map((u) => String(u._id)) } }];
+  }
+  const total = await AuditLog.countDocuments(filter);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(pages, Math.max(1, parseInt(req.query.page, 10) || 1));
+  const docs = await AuditLog.find(filter).sort({ time: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean();
+  const actions = (await AuditLog.distinct('action')).filter(Boolean).sort();
+  res.json({ entries: docs.map(shape), total, page, pages, pageSize: limit, actions });
 };

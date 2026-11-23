@@ -4,7 +4,7 @@ import { useToast } from './ToastContext';
 import api from '../services/api';
 import { uid, TODAY } from '../utils/helpers';
 import { fileUrl } from '../services/files';
-import { rolesOf, ROLES, participates } from '../hooks/usePermissions';
+import { participates } from '../hooks/usePermissions';
 
 const DataContext = createContext(null);
 
@@ -47,7 +47,7 @@ export const DataProvider = ({ children }) => {
   const [dues, setDues] = useState([]);
   const [elections, setElections] = useState([]);
   const [nominations, setNominations] = useState({});
-  const [audit, setAudit] = useState([]);
+  const [auditCount, setAuditCount] = useState(0); // the entries themselves load a page at a time (services/audit.js)
   const [pendingUsers, setPendingUsers] = useState([]);
   const [roleHistory, setRoleHistory] = useState([]);
   const [duesSettings, setDuesSettings] = useState([]);
@@ -79,7 +79,7 @@ export const DataProvider = ({ children }) => {
 
   const clearData = () => {
     setUsers([]); setSongs([]); setMinutes([]); setReceipts([]); setVoiceNotes([]); setSessions([]); setDebts([]);
-    setDues([]); setElections([]); setNominations({}); setAudit([]); setPendingUsers([]); setRoleHistory([]);
+    setDues([]); setElections([]); setNominations({}); setAuditCount(0); setPendingUsers([]); setRoleHistory([]);
     setDuesSettings([]); setAnnouncements([]); setDocuments([]); setProbations([]); setNotifs([]); setPendingNoms([]);
   };
 
@@ -99,7 +99,7 @@ export const DataProvider = ({ children }) => {
         setSongs(data.songs || []); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
         setVoiceNotes(data.voiceNotes || []); setSessions(data.sessions || []); setDebts(data.debts || []);
         setDues(data.dues || []); setElections(data.elections || []); setNominations(data.nominations || {});
-        setAudit(newestFirst(data.audit, 'time')); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
+        setAuditCount(data.auditCount || 0); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
         setDuesSettings(data.duesSettings || []); setAnnouncements(newestFirst(data.announcements, 'date')); setDocuments(data.documents || []);
         setProbations(data.probations || []); setNotifs(newestFirst(data.notifs, 'date')); setPendingNoms(data.pendingNoms || []);
         setElectionStatus(data.electionStatus || null);
@@ -128,9 +128,8 @@ export const DataProvider = ({ children }) => {
 
   const me = users.find((u) => u.email === user?.email) || null;
 
-  const log = (action, detail) => setAudit((p) => [{ id: uid('a'), userId: me?.id || 'system', role: me ? rolesOf(me).map((r) => ROLES[r].label).join(' + ') : 'System', action, detail, time: new Date().toISOString().slice(0, 16).replace('T', ' ') }, ...(p || [])]);
-  // …and the entry is saved by the server under the real author
-  const logSaved = (action, detail) => { log(action, detail); api.post('/audit', { action, detail }).catch(() => {}); };
+  // An Audit Log entry, saved by the server under the real author (the Audit Log page reads it back from GET /api/audit)
+  const logSaved = (action, detail) => { setAuditCount((n) => n + 1); api.post('/audit', { action, detail }).catch(() => {}); };
   // An officer's notice to every member (also sent to their phones)
   const notify = (text) => api.post('/notices', { text }).then(({ data }) => setNotifs((p) => [data.notice, ...(p || [])])).catch(() => {});
   // Opening the bell: every notice counts as read for this member
@@ -192,7 +191,7 @@ export const DataProvider = ({ children }) => {
 
   const retryLoad = () => setLoadAttempt((n) => n + 1);
 
-  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, audit, log: logSaved, toast, markAllRead, changeRole, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, auditCount, log: logSaved, toast, markAllRead, changeRole, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

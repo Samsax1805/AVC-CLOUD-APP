@@ -9,5 +9,6 @@ const auditLimit = rateLimit({ name: 'audit', windowMs: 60 * 1000, max: 240 });
 r.post('/notices', auth, safe(c.post));
 r.post('/notices/read', auth, safe(c.readAll));
 r.post('/audit', auth, auditLimit, safe(c.audit));
+r.get('/audit', auth, safe(c.auditList));
 
 module.exports = r;

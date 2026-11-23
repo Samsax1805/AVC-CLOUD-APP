@@ -6,6 +6,7 @@ const DuesChart = lazy(() => import('../components/DashCharts').then((m) => ({ d
 import { motion } from 'framer-motion';
 import { TODAY, lira, fmtDate, shortDate, PIE_COLORS, duesNow } from '../utils/helpers';
 import { PERMS, rolesOf, ACT_META, participates } from '../hooks/usePermissions';
+import { fetchAudit } from '../services/audit';
 import Icon from '../components/ui/Icon';
 import Avatar from '../components/ui/Avatar';
 import RoleChip from '../components/ui/RoleChip';
@@ -30,7 +31,7 @@ const useNarrow = () => {
 
 export default function Dashboard({ ctx }) {
   const {
-    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], audit = [], electionStatus = null,
+    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], auditCount = 0, electionStatus = null,
     minutes = [], probations = [], duesSettings = [], pendingUsers = [], announcements = [], setPage,
   } = ctx || {};
 
@@ -57,6 +58,15 @@ export default function Dashboard({ ctx }) {
   const duesData = Object.entries(weekTotals).map(([week, amount]) => ({ week, amount })).sort((a, b) => (a.week > b.week ? 1 : -1)).slice(-6);
 
   const canSeeActivity = PERMS.viewAudit(me); // [FIX] officers only
+  // The six newest Audit Log entries, fetched on their own (the full log is no longer part of sign-in);
+  // fetched again whenever this browser adds an entry
+  const [audit, setAudit] = useState([]);
+  useEffect(() => {
+    if (!canSeeActivity) return undefined;
+    const ctl = new AbortController();
+    fetchAudit({ limit: 6 }, ctl.signal).then((d) => setAudit(d.entries || [])).catch(() => {});
+    return () => ctl.abort();
+  }, [canSeeActivity, auditCount]);
 
   const cards = [];
   if (PERMS.approveMembers(me)) cards.push({ icon: 'users', label: 'Total members', value: activeUsers.filter((u) => !u.system).length, sub: pendingUsers.length ? `${pendingUsers.length} pending approval` : 'All approved', tone: '#1a2c60' });

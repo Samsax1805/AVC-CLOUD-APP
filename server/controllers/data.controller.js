@@ -47,6 +47,8 @@ exports.getAll = async (req, res) => {
   try {
     const out = {};
     for (const [key, M] of Object.entries(KEYS)) {
+      // The Audit Log grows forever: it loads a page at a time from GET /api/audit, so only its size comes here
+      if (key === 'audit') { out.auditCount = await M.countDocuments(); continue; }
       const docs = await M.find().lean();
       out[key] = docs.map(({ _id, __v, createdAt, updatedAt, ...rest }) => ({ ...rest, id: rest.uid, ...(key === 'sessions' ? { records: rest.records || {}, checkins: rest.checkins || [] } : {}) }));
     }
