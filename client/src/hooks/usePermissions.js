@@ -22,6 +22,8 @@ export const hasAny = (u, list) => !isAlumni(u) && list.some((r) => u.roles.incl
 export const participates = (u) => !!u && (u.status || 'active') === 'active' && !isAlumni(u) && !u.system;
 export const PERMS = {
   manageSongs: (u) => hasAny(u, ['admin', 'president', 'custodian']),
+  // The Music Library's upload queue (Music Approvers join in stage B)
+  libraryQueue: (u) => hasAny(u, ['admin', 'president', 'custodian', 'choirmaster', 'asstchoirmaster']),
   manageMinutes: (u) => hasAny(u, ['admin', 'president', 'secretary']),
   manageReceipts: (u) => hasAny(u, ['admin', 'president', 'secretary']),
   manageDebts: (u) => hasAny(u, ['admin', 'president']),

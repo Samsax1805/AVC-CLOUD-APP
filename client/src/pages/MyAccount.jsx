@@ -16,6 +16,7 @@ export default function MyAccount({ ctx }) {
   const me = users.find((u) => u.id === meCtx.id) || meCtx;
   const [cal, setCal] = useState(null);
   useEffect(() => { api.get('/calendar', { params: { from: todayStr(), to: addDays(todayStr(), 60) } }).then(({ data }) => setCal(data)).catch(() => setCal({ events: [], setlists: [], psalmists: [] })); }, []);
+  useEffect(() => { ctx.loadSongs?.().catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const songById = useMemo(() => Object.fromEntries(songs.map((s) => [s.id, s])), [songs]);
   const takesPart = participates(me);
 

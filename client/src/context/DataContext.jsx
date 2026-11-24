@@ -39,6 +39,10 @@ export const DataProvider = ({ children }) => {
   // [FIX] REAL-DATA MODE: everything starts EMPTY. Zeros until real records exist.
   const [users, setUsers] = useState([]);
   const [songs, setSongs] = useState([]);
+  // Songs are not part of signing in (that keeps sign-in quick however big the library grows): pages that
+  // list songs call loadSongs(), which fetches them once, without picture previews
+  const [songCount, setSongCount] = useState(0);
+  const songsLoad = useRef(null);
   const [minutes, setMinutes] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [voiceNotes, setVoiceNotes] = useState([]);
@@ -78,7 +82,7 @@ export const DataProvider = ({ children }) => {
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearData = () => {
-    setUsers([]); setSongs([]); setMinutes([]); setReceipts([]); setVoiceNotes([]); setSessions([]); setDebts([]);
+    setUsers([]); setSongs([]); songsLoad.current = null; setSongCount(0); setMinutes([]); setReceipts([]); setVoiceNotes([]); setSessions([]); setDebts([]);
     setDues([]); setElections([]); setNominations({}); setAuditCount(0); setPendingUsers([]); setRoleHistory([]);
     setDuesSettings([]); setAnnouncements([]); setDocuments([]); setProbations([]); setNotifs([]); setPendingNoms([]);
   };
@@ -96,7 +100,7 @@ export const DataProvider = ({ children }) => {
         if (!current) return;
         setUsers(withCurrentUser(data.users || [], user));
         baseRoles.current = Object.fromEntries((data.users || []).map((u) => [u.id, u.roles || ['member']]));
-        setSongs(data.songs || []); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
+        songsLoad.current = null; setSongCount(data.songCount || 0); setMinutes(data.minutes || []); setReceipts(data.receipts || []);
         setVoiceNotes(data.voiceNotes || []); setSessions(data.sessions || []); setDebts(data.debts || []);
         setDues(data.dues || []); setElections(data.elections || []); setNominations(data.nominations || {});
         setAuditCount(data.auditCount || 0); setPendingUsers(data.pendingUsers || []); setRoleHistory(data.roleHistory || []);
@@ -114,6 +118,15 @@ export const DataProvider = ({ children }) => {
       .finally(() => { if (current) setLoadingData(false); });
     return () => { current = false; };
   }, [userId, loadAttempt]);
+
+  const loadSongs = (force = false) => {
+    if (!userId) return Promise.resolve([]);
+    if (!songsLoad.current || force) {
+      songsLoad.current = api.get('/records/songs').then(({ data }) => { setSongs(data.songs || []); setSongCount((data.songs || []).length); return data.songs || []; })
+        .catch((e) => { songsLoad.current = null; throw e; });
+    }
+    return songsLoad.current;
+  };
 
   // There is no whole-choir save any more: every change is saved on its own by the page that makes it
   // (/api/records, /api/members, /api/notices, /api/audit and each feature's own routes).
@@ -191,7 +204,7 @@ export const DataProvider = ({ children }) => {
 
   const retryLoad = () => setLoadAttempt((n) => n + 1);
 
-  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, auditCount, log: logSaved, toast, markAllRead, changeRole, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
+  const value = { financeStatus, setFinanceStatus, electionStatus, setElectionStatus, me, loadingData, loadFailed, retryLoad, users, setUsers, activeUsers, members, memberAction, addMember, setMemberPart, songs, setSongs, songCount: songsLoad.current ? songs.length : songCount, loadSongs, minutes, setMinutes, receipts, setReceipts, voiceNotes, setVoiceNotes, sessions, setSessions, debts, setDebts, dues, setDues, elections, setElections, nominations, setNominations, auditCount, log: logSaved, toast, markAllRead, changeRole, playId, playProg, togglePlay, pendingUsers, setPendingUsers, roleHistory, setRoleHistory, duesSettings, setDuesSettings, announcements, setAnnouncements, documents, setDocuments, probations, setProbations, notifs, setNotifs, pendingNoms, setPendingNoms, notify };
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 export const useDataContext = () => useContext(DataContext);

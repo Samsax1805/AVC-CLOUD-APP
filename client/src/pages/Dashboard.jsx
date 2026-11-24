@@ -31,7 +31,7 @@ const useNarrow = () => {
 
 export default function Dashboard({ ctx }) {
   const {
-    me, users = [], activeUsers = [], songs = [], sessions = [], debts = [], dues = [], auditCount = 0, electionStatus = null,
+    me, users = [], activeUsers = [], songCount = 0, sessions = [], debts = [], dues = [], auditCount = 0, electionStatus = null,
     minutes = [], probations = [], duesSettings = [], pendingUsers = [], announcements = [], setPage,
   } = ctx || {};
 
@@ -74,14 +74,14 @@ export default function Dashboard({ ctx }) {
   if (PERMS.manageDuesSettings(me)) cards.push({ icon: 'dollar', label: 'Current weekly dues', value: lira(duesNow(duesSettings)), sub: duesSettings.length ? `since ${fmtDate(duesNow.date || duesSettings[duesSettings.length - 1]?.effectiveFrom)}` : 'not set yet', tone: '#0f766e' });
   if (PERMS.markAttendance(me)) cards.push({ icon: 'check', label: 'Last attendance', value: (attStats[attStats.length - 1]?.rate || 0) + '%', sub: attStats.length ? shortDate(attStats[attStats.length - 1].date) : 'no sessions yet', tone: '#059669' });
   if (PERMS.manageProbation(me)) cards.push({ icon: 'clock', label: 'On probation', value: probations.filter((p) => p.status === 'active').length, tone: '#b45309' });
-  if (PERMS.manageSongs(me)) cards.push({ icon: 'music', label: 'Songs in library', value: songs.length, tone: '#7c3aed' });
+  if (PERMS.manageSongs(me)) cards.push({ icon: 'music', label: 'Songs in library', value: songCount, tone: '#7c3aed' });
   if (PERMS.manageMinutes(me)) cards.push({ icon: 'file', label: 'Minutes published', value: minutes.length, tone: '#0284c7' });
   if (PERMS.manageElections(me)) cards.push({ icon: 'vote', label: 'Election', value: es ? es.label : 'None', sub: es?.title, tone: '#4f46e5' });
   if (!cards.length) {
     const mine = sessions.map((s) => (s.records || {})[me.id]).filter(Boolean);
     cards.push({ icon: 'check', label: 'My attendance rate', value: (mine.length ? Math.round((mine.filter((v) => v === 'present').length / mine.length) * 100) : 0) + '%', sub: mine.length ? `${mine.length} sessions` : 'no sessions yet', tone: '#059669' });
     cards.push({ icon: 'coins', label: 'My outstanding debt', value: lira(myOut), tone: '#e11d48' });
-    cards.push({ icon: 'music', label: 'Songs available', value: songs.length, tone: '#7c3aed' });
+    cards.push({ icon: 'music', label: 'Songs available', value: songCount, tone: '#7c3aed' });
     cards.push({ icon: 'vote', label: 'Election', value: es ? es.label : 'None', sub: es?.title, tone: '#4f46e5' });
   }
 

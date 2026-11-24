@@ -187,3 +187,19 @@ exports.pay = async (req, res) => {
   }
   res.json({ ok: true, record: shape(after) });
 };
+
+// GET /api/records/songs — the Music Library's songs without their picture previews (those load one by one,
+// only as they come into view), so opening a page that lists songs stays small and quick
+exports.songs = async (req, res) => {
+  const docs = await R.Song.find({}, { preview: 0 }).lean();
+  const withPreview = new Set((await R.Song.find({ preview: { $nin: [null, ''] } }, { uid: 1 }).lean()).map((d) => d.uid));
+  res.json({ songs: docs.map((d) => ({ ...shape(d), hasPreview: withPreview.has(d.uid) })) });
+};
+
+// GET /api/records/songs/:id/preview — one song's picture preview, as an image the browser may keep for a day
+exports.songPreview = async (req, res) => {
+  const d = await R.Song.findOne({ uid: String(req.params.id) }, { preview: 1 }).lean();
+  const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(d?.preview || '');
+  if (!m) return res.status(404).json({ msg: 'No preview' });
+  res.set({ 'Content-Type': m[1], 'Cache-Control': 'private, max-age=86400' }).send(Buffer.from(m[3], 'base64'));
+};

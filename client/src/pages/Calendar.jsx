@@ -47,6 +47,7 @@ export default function CalendarPage({ ctx }) {
   const load = useCallback(() => api.get('/calendar', { params: { from, to } }).then(({ data }) => { setCal(data); setFailed(false); }).catch(() => setFailed(true)), [from, to]);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => { ctx.loadSongs?.().catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const songById = useMemo(() => Object.fromEntries(songs.map((s) => [s.id, s])), [songs]);
   const by = useMemo(() => {
     const m = {};

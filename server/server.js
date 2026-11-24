@@ -9,6 +9,9 @@ const ORIGINS = ['https://avcsb.com', 'https://www.avcsb.com'];
 app.use(cors(process.env.NODE_ENV === 'production' ? { origin: ORIGINS } : {}));
 app.disable('x-powered-by');
 // Only the whole-choir save carries large data (pictures in member profiles); everything else is small
+// Local testing only: a stand-in for file storage on this computer (never in production)
+const localFiles = require('./services/storage').localRouter();
+if (localFiles) app.use('/api/files/local', localFiles);
 app.use(['/api/data', '/api/state'], express.json({ limit: '50mb' }));
 app.use(express.json({ limit: '5mb' }));
 app.use(require('./middleware/shield'));
@@ -28,6 +31,7 @@ app.use('/api/attendance', require('./routes/attendance.routes'));
 app.use('/api/calendar', require('./routes/calendar.routes'));
 app.use('/api/push', require('./routes/push.routes'));
 app.use('/api/records', require('./routes/records.routes'));
+app.use('/api/library', require('./routes/library.routes'));
 app.use('/api', require('./routes/notices.routes'));
 
 app.use((req, res) => {
@@ -45,6 +49,7 @@ connectDB()
     console.log(`🚀 API running on http://localhost:${PORT}`);
     require('./services/birthday.service').start();
     require('./services/psalmist.service').start();
+    require('./controllers/library.controller').startHousekeeping();
   }))
   .catch((e) => {
     console.error('❌ DB failed:', e.message);

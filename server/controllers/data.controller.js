@@ -47,6 +47,8 @@ exports.getAll = async (req, res) => {
   try {
     const out = {};
     for (const [key, M] of Object.entries(KEYS)) {
+      // Songs load only when a page needs them (GET /api/records/songs), so signing in stays quick however big the library grows
+      if (key === 'songs') { out.songCount = await M.countDocuments(); continue; }
       // The Audit Log grows forever: it loads a page at a time from GET /api/audit, so only its size comes here
       if (key === 'audit') { out.auditCount = await M.countDocuments(); continue; }
       const docs = await M.find().lean();

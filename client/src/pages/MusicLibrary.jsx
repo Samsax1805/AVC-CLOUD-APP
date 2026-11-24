@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import api from '../services/api';
 import { motion } from 'framer-motion';
 import { TODAY, uid, shortDate, VOICE_PARTS, SONG_CATEGORIES, songCategories, ALL_PARTS, songParts, partsLabel } from '../utils/helpers';
 import { PERMS } from '../hooks/usePermissions';
@@ -10,11 +11,35 @@ import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOA
 import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
+// The upload queue is only downloaded by officers who open it
+const LibraryQueue = lazy(() => import('./library/LibraryQueue'));
+
+// A song's picture preview, fetched only when its card scrolls into view (kept by the browser for a day)
+const previews = new Map();
+function Preview({ song }) {
+  const ref = useRef(null);
+  const [src, setSrc] = useState(song.preview || previews.get(song.id) || '');
+  useEffect(() => {
+    if (src || !song.hasPreview || !ref.current) return undefined;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      api.get(`/records/songs/${song.id}/preview`, { responseType: 'blob' }).then(({ data }) => { const u = URL.createObjectURL(data); previews.set(song.id, u); setSrc(u); }).catch(() => {});
+    }, { rootMargin: '200px' });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [song.id, song.hasPreview, src]);
+  return src ? <img src={src} alt={`First page of ${song.title}`} /> : <span ref={ref}><Icon name="note" size={40} /></span>;
+}
 const formatOf = (type) => (type === 'application/pdf' ? 'PDF Score' : type.startsWith('image/') ? 'Image' : type.startsWith('video/') ? 'Video' : type.includes('mpeg') ? 'MP3' : 'Audio');
 
 export default function MusicLibrary({ ctx }) {
-  const { me, users, songs, setSongs, log, toast, playId, playProg, togglePlay } = ctx;
+  const { me, users, songs, setSongs, loadSongs, log, toast, playId, playProg, togglePlay } = ctx;
   const canEdit = PERMS.manageSongs(me);
+  const canQueue = PERMS.libraryQueue(me);
+  const [tab, setTab] = useState('library');
+  const [songsFailed, setSongsFailed] = useState(false);
+  useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('');
   const [part, setPart] = useState('All');
   const [cat, setCat] = useState('All');
@@ -81,6 +106,22 @@ export default function MusicLibrary({ ctx }) {
   });
   const paged = usePaged(list, 12, `${q}|${part}|${cat}`);
 
+  const tabs = canQueue && (
+    <div className="tabs" role="tablist" style={{ marginBottom: 4 }}>
+      <button type="button" role="tab" aria-selected={tab === 'library'} className={`tab ${tab === 'library' ? 'on' : ''}`} onClick={() => setTab('library')}>Library</button>
+      <button type="button" role="tab" aria-selected={tab === 'queue'} className={`tab ${tab === 'queue' ? 'on' : ''}`} onClick={() => setTab('queue')}>Upload queue</button>
+    </div>
+  );
+  if (canQueue && tab === 'queue') {
+    return (
+      <div className="stack">
+        <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Upload copies first: each is saved at once with a Q number and waits here until its details are filled in.</p></div></div>
+        {tabs}
+        <Suspense fallback={<p className="muted small">Opening the queue…</p>}><LibraryQueue ctx={ctx} /></Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -90,6 +131,7 @@ export default function MusicLibrary({ ctx }) {
           {canEdit && <button className="btn btn-pri" onClick={openNew}><Icon name="upload" size={15} /> Upload song</button>}
         </div>
       </div>
+      {tabs}
       <div className="toolbar">
         <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search by song name or category…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select className="input sm" aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}>
@@ -104,8 +146,8 @@ export default function MusicLibrary({ ctx }) {
           const playing = playId === 'song-' + s.id;
           return (
             <motion.div layout key={s.id} className="card song-card">
-              <div className={`song-cover ${s.preview ? 'has-preview' : ''}`} style={{ background: `linear-gradient(135deg, ${s.cover}, ${s.cover}99)`, cursor: s.fileUrl ? 'pointer' : undefined }} onClick={() => s.fileUrl && !isMedia(s) && openCover(s)} title={s.fileUrl && !isMedia(s) ? 'Open file' : undefined}>
-                {s.preview ? <img src={s.preview} alt={`First page of ${s.title}`} /> : <Icon name="note" size={40} />}
+              <div className={`song-cover ${s.preview || s.hasPreview ? 'has-preview' : ''}`} style={{ background: `linear-gradient(135deg, ${s.cover}, ${s.cover}99)`, cursor: s.fileUrl ? 'pointer' : undefined }} onClick={() => s.fileUrl && !isMedia(s) && openCover(s)} title={s.fileUrl && !isMedia(s) ? 'Open file' : undefined}>
+                {s.preview || s.hasPreview ? <Preview song={s} /> : <Icon name="note" size={40} />}
                 <button className="play-fab" onClick={(e) => { e.stopPropagation(); openCover(s); }} aria-label={isMedia(s) ? (playing ? 'Pause' : 'Play') : 'Open'}><Icon name={isMedia(s) ? (playing ? 'pause' : 'play') : 'eye'} size={16} /></button>
                 {s.duration && <span className="song-dur">{s.duration}</span>}
               </div>
@@ -126,6 +168,7 @@ export default function MusicLibrary({ ctx }) {
         })}
       </div>
       <Pagination paged={paged} label="songs" />
+      {songsFailed && !songs.length && <p className="muted small">The songs could not be loaded. Check your connection and open the page again.</p>}
       {!list.length && <EmptyState icon="music" text="No songs match your search." />}
       <Modal open={!!modal} onClose={() => setModal(null)} title={modal?.mode === 'new' ? 'Upload a song' : 'Edit song'}>
         <div className="field"><label className="label">Song title</label><input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Hallelujah Anthem" /></div>

@@ -19,6 +19,8 @@ const GROUPS = [
 export default function GlobalSearch({ ctx, nav, go }) {
   const { me, users = [], songs = [], documents = [], minutes = [], announcements = [], voiceNotes = [] } = ctx;
   const [q, setQ] = useState('');
+  // Songs are fetched the first time someone searches, not at sign-in
+  useEffect(() => { if (q.trim()) ctx.loadSongs?.().catch(() => {}); }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState(0);
   const box = useRef(null);
