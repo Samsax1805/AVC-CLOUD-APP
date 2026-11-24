@@ -13,6 +13,8 @@ import { addRecord, changeRecord, removeRecord, saveError } from '../services/re
 const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
 // The upload queue is only downloaded by officers who open it
 const LibraryQueue = lazy(() => import('./library/LibraryQueue'));
+const Approvals = lazy(() => import('./library/Approvals'));
+const Catalogue = lazy(() => import('./library/Catalogue'));
 
 // A song's picture preview, fetched only when its card scrolls into view (kept by the browser for a day)
 const previews = new Map();
@@ -36,7 +38,10 @@ const formatOf = (type) => (type === 'application/pdf' ? 'PDF Score' : type.star
 export default function MusicLibrary({ ctx }) {
   const { me, users, songs, setSongs, loadSongs, log, toast, playId, playProg, togglePlay } = ctx;
   const canEdit = PERMS.manageSongs(me);
-  const canQueue = PERMS.libraryQueue(me);
+  // What this person may do in the library (Music Approvers are a list, so the server says)
+  const [lib, setLib] = useState({ staff: PERMS.libraryQueue(me), approve: false, manageApprovers: false });
+  useEffect(() => { api.get('/library/me').then(({ data }) => setLib(data)).catch(() => {}); }, []);
+  const canQueue = lib.staff;
   const [tab, setTab] = useState('library');
   const [songsFailed, setSongsFailed] = useState(false);
   useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -99,7 +104,8 @@ export default function MusicLibrary({ ctx }) {
   const toggleCat = (c) => setForm((f) => ({ ...f, categories: f.categories.includes(c) ? f.categories.filter((x) => x !== c) : [...f.categories, c] }));
   // Search matches the song name or any of its categories
   const needle = q.trim().toLowerCase();
-  const list = songs.filter((s) => {
+  // Catalogue music has its own section above; this grid is the library as it was
+  const list = songs.filter((s) => !s.catalogue).filter((s) => {
     const cats = songCategories(s);
     return (part === 'All' || songParts(s).includes(part)) && (cat === 'All' || cats.includes(cat))
       && (!needle || s.title.toLowerCase().includes(needle) || cats.some((c) => c.toLowerCase().includes(needle)));
@@ -110,14 +116,24 @@ export default function MusicLibrary({ ctx }) {
     <div className="tabs" role="tablist" style={{ marginBottom: 4 }}>
       <button type="button" role="tab" aria-selected={tab === 'library'} className={`tab ${tab === 'library' ? 'on' : ''}`} onClick={() => setTab('library')}>Library</button>
       <button type="button" role="tab" aria-selected={tab === 'queue'} className={`tab ${tab === 'queue' ? 'on' : ''}`} onClick={() => setTab('queue')}>Upload queue</button>
+      {lib.approve && <button type="button" role="tab" aria-selected={tab === 'approvals'} className={`tab ${tab === 'approvals' ? 'on' : ''}`} onClick={() => setTab('approvals')}>Approvals</button>}
     </div>
   );
+  if (canQueue && lib.approve && tab === 'approvals') {
+    return (
+      <div className="stack">
+        <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Approving issues the permanent CHR or INS number and seals exactly what was approved.</p></div></div>
+        {tabs}
+        <Suspense fallback={<p className="muted small">Opening approvals…</p>}><Approvals ctx={ctx} perms={lib} /></Suspense>
+      </div>
+    );
+  }
   if (canQueue && tab === 'queue') {
     return (
       <div className="stack">
         <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Upload copies first: each is saved at once with a Q number and waits here until its details are filled in.</p></div></div>
         {tabs}
-        <Suspense fallback={<p className="muted small">Opening the queue…</p>}><LibraryQueue ctx={ctx} /></Suspense>
+        <Suspense fallback={<p className="muted small">Opening the queue…</p>}><LibraryQueue ctx={ctx} perms={lib} /></Suspense>
       </div>
     );
   }
@@ -132,6 +148,7 @@ export default function MusicLibrary({ ctx }) {
         </div>
       </div>
       {tabs}
+      <Suspense fallback={null}><Catalogue me={me} toast={toast} /></Suspense>
       <div className="toolbar">
         <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search by song name or category…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select className="input sm" aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}>

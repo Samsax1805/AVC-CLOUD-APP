@@ -3,7 +3,7 @@ import Icon from '../../components/ui/Icon';
 import useAutosave from '../../hooks/useAutosave';
 import { openFile } from '../../services/files';
 import {
-  ACCEPT, addFileTo, changeFile, claimItem, getItem, problem, removeFile, removeItem, sendPresence, settleDuplicate, sizeLabel, uploadToLibrary,
+  ACCEPT, addFileTo, changeFile, claimItem, getItem, problem, removeFile, removeItem, sendItem, sendPresence, settleDuplicate, sizeLabel, uploadToLibrary, urgentItem,
 } from '../../services/library';
 
 // One queue item's details (design page 9). Every field saves on its own; there is no Save button.
@@ -22,7 +22,7 @@ export const NEEDS = {
 const ago = (at) => { const s = Math.max(1, Math.round((Date.now() - new Date(at)) / 1000)); return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(at).toLocaleString(); };
 const show = (v) => (Array.isArray(v) ? v.join(', ') : v === null || v === undefined || v === '' ? '(empty)' : String(v));
 
-export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }) {
+export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChanged, toast }) {
   const [item, setItem] = useState(null);
   const [failed, setFailed] = useState('');
   const [progress, setProgress] = useState(null);
@@ -31,6 +31,7 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
   const [uploads, setUploads] = useState([]);
   const [link, setLink] = useState('');
   const [sure, setSure] = useState('');
+  const [urgent, setUrgent] = useState(null); // reason being typed
   const focus = useRef('');
 
   const fresh = (it) => { setItem(it); setProgress({ done: it.done, total: it.total, missing: it.missing, status: it.status }); };
@@ -56,7 +57,7 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
     const v = values[f];
     const c = conflicts[f];
     const who = typing(f);
-    const common = { onFocus: () => onFocus(f), 'aria-label': LABELS[f], disabled: state.locked };
+    const common = { onFocus: () => onFocus(f), 'aria-label': LABELS[f], disabled: locked };
     let input;
     if (kind === 'text') input = <input className="input" {...common} value={v ?? ''} maxLength={extra.n || 200} list={extra.list ? `dl-${extra.list}` : undefined} placeholder={extra.ph} onChange={(e) => set(f, e.target.value)} />;
     else if (kind === 'long') input = <textarea className="input" rows={3} {...common} value={v ?? ''} maxLength={2000} onChange={(e) => set(f, e.target.value)} />;
@@ -100,7 +101,9 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
   if (failed) return <div className="lib-editor"><p className="muted">{failed}</p><button type="button" className="btn btn-soft" onClick={onClose}>Back to the queue</button></div>;
   if (!item) return <div className="lib-editor"><p className="muted small">Opening…</p></div>;
   const p = progress || item;
-  const saving = state.locked ? 'Locked while the approvers review it'
+  const status = p.status || item.status;
+  const locked = state.locked || !['needs', 'ready', 'sent', 'urgent'].includes(item.status);
+  const saving = locked ? (item.status === 'awaiting' ? 'Locked while the approvers review it' : item.code ? `Approved as ${item.code}` : 'Locked')
     : Object.keys(conflicts).length ? `${Object.keys(conflicts).length} change${Object.keys(conflicts).length > 1 ? 's need' : ' needs'} your choice`
       : state.offline && state.waiting ? `Offline: ${state.waiting} change${state.waiting > 1 ? 's' : ''} waiting`
         : state.saving || state.waiting ? 'Saving…' : state.savedAt ? `✓ All changes saved · ${state.savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '✓ Saved';
@@ -129,6 +132,11 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
           </span>
         </div>
       )}
+
+      {item.status === 'awaiting' && <div className="lib-banner info">Waiting for approval since {new Date(item.sent?.at || item.updatedAt).toLocaleString()} (sent by {item.sent?.byName}). The details are locked while the approvers look.</div>}
+      {item.status === 'sent' && item.sentBack && <div className="lib-banner">Sent back by <b>{item.sentBack.byName}</b>: “{item.sentBack.reason}”. Make the change, then send it again.</div>}
+      {item.urgent && item.live && <div className="lib-banner warn">Published urgently by {item.urgent.byName} ({item.urgent.reason}). Members can use it now, marked “not yet reviewed”. Fill in the details and send it for approval to give it its number.</div>}
+      {item.code && <div className="lib-banner info">Approved as <b>{item.code}</b> by {item.seal?.byName}{item.seal?.self ? ' (self-approved)' : ''}{item.status === 'published' ? ' and published.' : item.publishAt ? `, to publish on ${new Date(item.publishAt).toLocaleDateString()}.` : ', held.'}</div>}
 
       <div className="lib-ed-grid">
         <div>
@@ -172,8 +180,18 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
               const ok = !(p.missing || []).includes(k);
               return <div key={k} className={`lib-chk ${ok ? 'y' : 'n'}`}><i>{ok ? '✓' : '!'}</i>{NEEDS[k] || k}</div>;
             })}
-            <button type="button" className="btn btn-soft" disabled style={{ width: '100%', marginTop: 10 }} title="Approvals arrive in the next update">Send for approval</button>
-            <div className="muted tiny" style={{ marginTop: 6 }}>{p.status === 'ready' ? 'Ready to send. Sending for approval arrives in the next update.' : 'Everything is saved as you go: come back any time.'}</div>
+            {!locked && <button type="button" className="btn btn-pri" disabled={p.done < p.total || state.waiting > 0 || state.saving > 0} style={{ width: '100%', marginTop: 10 }} onClick={() => act(() => sendItem(uid), 'Sent for approval: the approvers have been told')}>Send for approval</button>}
+            <div className="muted tiny" style={{ marginTop: 6 }}>{locked ? '' : p.done < p.total ? 'Everything is saved as you go: come back any time.' : 'Ready to send.'}</div>
+            {perms.approve && ['needs', 'ready', 'sent'].includes(item.status) && (urgent === null
+              ? <button type="button" className="btn btn-sm lib-urgent-btn" style={{ width: '100%', marginTop: 8 }} onClick={() => setUrgent('')}>⚡ Urgent: publish now</button>
+              : (
+                <div className="lib-act" style={{ marginTop: 8 }}>
+                  <label className="label" style={{ marginTop: 0 }}>Why is it needed now?</label>
+                  <input className="input sm" autoFocus maxLength={200} placeholder="e.g. Needed for Sunday" value={urgent} onChange={(e) => setUrgent(e.target.value)} />
+                  <div className="muted tiny" style={{ margin: '6px 0' }}>Members can use it at once, marked “Urgent · not yet reviewed”. It keeps its Q number until it is approved normally.</div>
+                  <div className="chip-row"><button type="button" className="btn btn-sm btn-ghost" onClick={() => setUrgent(null)}>Cancel</button><button type="button" className="btn btn-sm lib-urgent-btn" disabled={!urgent.trim()} onClick={() => act(() => urgentItem(uid, urgent.trim()).then((it) => { setUrgent(null); return it; }), 'Published urgently: members can use it now')}>Publish now</button></div>
+                </div>
+              ))}
           </div>
 
           <div className="card lib-files">
@@ -184,11 +202,11 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
                   <button type="button" className="lib-file-name" onClick={() => (f.link ? window.open(f.link, '_blank', 'noopener') : openFile(f.id, f.name).catch((e) => toast(problem(e), 'err')))} title="Open">
                     <Icon name={f.link ? 'play' : /^audio|^video/.test(f.mime) ? 'music' : 'file'} size={14} /> {f.name}
                   </button>
-                  <button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => (sure === f.fid ? (setSure(''), act(() => removeFile(uid, f.fid), 'File removed (kept 30 days in case it was a mistake)')) : setSure(f.fid))}>{sure === f.fid ? 'Remove?' : <Icon name="trash" size={13} />}</button>
+                  {!locked && <button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => (sure === f.fid ? (setSure(''), act(() => removeFile(uid, f.fid), 'File removed (kept 30 days in case it was a mistake)')) : setSure(f.fid))}>{sure === f.fid ? 'Remove?' : <Icon name="trash" size={13} />}</button>}
                 </div>
                 <div className="lib-file-meta">
-                  <select className="input sm" aria-label="Kind of file" value={f.kind} onChange={(e) => act(() => changeFile(uid, f.fid, { kind: e.target.value }))}>{(lists?.lists?.fileKinds || [f.kind]).map((k) => <option key={k}>{k}</option>)}</select>
-                  <input className="input sm" aria-label="Part" list="dl-parts" defaultValue={f.part} onBlur={(e) => e.target.value.trim() && e.target.value !== f.part && act(() => changeFile(uid, f.fid, { part: e.target.value }))} />
+                  <select className="input sm" aria-label="Kind of file" disabled={locked} value={f.kind} onChange={(e) => act(() => changeFile(uid, f.fid, { kind: e.target.value }))}>{(lists?.lists?.fileKinds || [f.kind]).map((k) => <option key={k}>{k}</option>)}</select>
+                  <input className="input sm" aria-label="Part" list="dl-parts" disabled={locked} defaultValue={f.part} onBlur={(e) => e.target.value.trim() && e.target.value !== f.part && act(() => changeFile(uid, f.fid, { part: e.target.value }))} />
                   <span className="muted tiny">v{f.version}{f.size ? ` · ${sizeLabel(f.size)}` : ''}</span>
                 </div>
               </div>
@@ -201,6 +219,7 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
                 )}
               </div>
             ))}
+            {!locked && <>
             <label className="upload-drop" style={{ marginTop: 8 }}>
               <Icon name="upload" size={18} /><span className="small"><b>Add a score, part or recording</b><br /><span className="muted tiny">Several at once · up to 100 MB each</span></span>
               <input type="file" hidden multiple accept={ACCEPT} onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
@@ -209,10 +228,11 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
               <input className="input sm" placeholder="…or paste a recording link (https://)" value={link} onChange={(e) => setLink(e.target.value)} />
               <button type="button" className="btn btn-sm btn-soft" disabled={!link.trim()} onClick={() => act(() => addFileTo(uid, { link: { url: link.trim() } }).then((it) => { setLink(''); return it; }), 'Link added')}>Add</button>
             </div>
+            </>}
             <datalist id="dl-parts">{opts('parts').map((o) => <option key={o} value={o} />)}</datalist>
           </div>
 
-          <div className="card lib-side-actions">
+          {!locked && <div className="card lib-side-actions">
             {item.claim?.active && !item.claim.mine ? <div className="small">{item.claim.name} is working on this. You can still help.</div> : null}
             <div className="chip-row">
               {item.claim?.mine && item.claim.active
@@ -220,7 +240,7 @@ export default function ItemEditor({ uid, lists, me, onClose, onChanged, toast }
                 : <button type="button" className="btn btn-sm btn-soft" onClick={() => act(() => claimItem(uid, true), "Claimed: others can see you're on it")}>Claim: I'm working on this</button>}
               <button type="button" className="btn btn-sm btn-danger-soft" onClick={() => (sure === 'item' ? removeItem(uid).then(() => { toast(`${item.ref} taken out of the queue`); onChanged?.(); onClose(); }).catch((e) => toast(problem(e), 'err')) : setSure('item'))}>{sure === 'item' ? 'Tap again to remove' : 'Remove from queue'}</button>
             </div>
-          </div>
+          </div>}
 
           {item.history?.length > 0 && (
             <details className="card lib-history"><summary className="lib-side-h">History</summary>

@@ -107,6 +107,8 @@ exports.saveSetlist = async (req, res) => {
   const raw = (Array.isArray(b.items) ? b.items : []).slice(0, 40);
   const songIds = [...new Set(raw.map((i) => String(i?.songId || '')))].filter(Boolean);
   const known = new Set((await Song.find({ uid: { $in: songIds } }, { uid: 1 }).lean()).map((s) => s.uid));
+  // …or music published in the catalogue (CHR / INS, or urgent)
+  for (const id of await require('./library.controller').visibleIds(songIds.filter((x) => !known.has(x)))) known.add(id);
   const items = raw.filter((i) => known.has(String(i?.songId))).map((i) => ({ songId: String(i.songId), label: text(i.label, 40), note: text(i.note, 200) }));
   const before = await Setlist.findOne({ date }).lean();
   const published = !!b.published;

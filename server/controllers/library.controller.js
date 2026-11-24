@@ -1,7 +1,10 @@
 const crypto = require('crypto');
 const User = require('../models/User');
 const { AuditLog } = require('../models/records');
-const { LibraryItem, LibraryTerm, nextNumber } = require('../models/Library');
+const { LibraryItem, LibraryTerm, LibraryApprover, nextNumber, peekNumber } = require('../models/Library');
+const { Notification } = require('../models/records');
+const push = require('../services/push.service');
+const { isSystem } = require('../config/system');
 const { LISTS, OPEN, SCORE_KINDS } = require('../config/libraryLists');
 const storage = require('../services/storage');
 const { lagosNow } = require('../services/birthday.service');
@@ -11,10 +14,25 @@ const { lagosNow } = require('../services/birthday.service');
 // one field at a time; every field saves on its own and two people changing the same field are told,
 // never silently overwritten. Approval, CHR / INS numbers and publishing come in stage B.
 
-// Who works on the queue (Music Approvers join in stage B)
+// Who works on the queue: these roles, plus the Music Approvers (decision 1)
 const STAFF = ['admin', 'president', 'custodian', 'choirmaster', 'asstchoirmaster'];
 const may = (roles = []) => !roles.includes('alumni') && roles.some((r) => STAFF.includes(r));
-const EDITABLE = ['needs', 'ready'];
+// Who approves: the Choir Master, Assistant Choir Master, anyone they bring on board, and the President and admin as back-up.
+// All hands on deck (decision b): approvers may approve music they sent themselves; the seal records it.
+const ROLE_APPROVERS = ['choirmaster', 'asstchoirmaster', 'president', 'admin'];
+const MANAGE_APPROVERS = ['choirmaster', 'asstchoirmaster', 'admin'];
+let approverCache = { at: 0, ids: new Set() };
+const approverIds = async () => {
+  if (Date.now() - approverCache.at < 10000) return approverCache.ids;
+  approverCache = { at: Date.now(), ids: new Set((await LibraryApprover.find({}, { userId: 1 }).lean()).map((a) => a.userId)) };
+  return approverCache.ids;
+};
+const isApprover = async (req) => !(req.user.roles || []).includes('alumni')
+  && ((req.user.roles || []).some((r) => ROLE_APPROVERS.includes(r)) || (await approverIds()).has(req.user.id));
+const staff = async (req) => may(req.user.roles) || isApprover(req);
+const AUTO = ['needs', 'ready']; // statuses worked out from the details
+const EDITABLE = ['needs', 'ready', 'sent', 'urgent'];
+const QUEUE = [...EDITABLE, 'awaiting'];
 const CLAIM_MS = 30 * 60 * 1000;
 const PAGE = 24;
 
@@ -134,7 +152,7 @@ const here = (uid, except) => {
 const derive = (doc) => {
   const d = doc.d || {};
   const missing = REQUIRED.filter(([, ok]) => !ok(d, doc.files)).map(([k]) => k);
-  const search = [refOf(doc.qno), d.title, d.composer, d.arranger, d.firstLine, d.genre, ...(d.languages || []), ...(doc.files || []).map((f) => f.name)]
+  const search = [refOf(doc.qno), doc.code, d.title, d.composer, d.arranger, d.firstLine, d.genre, ...(d.languages || []), ...(doc.files || []).map((f) => f.name)]
     .filter(Boolean).join(' ').toLowerCase().slice(0, 2000);
   return { done: REQUIRED.length - missing.length, missing, search, status: missing.length ? 'needs' : 'ready' };
 };
@@ -144,7 +162,7 @@ const derive = (doc) => {
 const settle = async (doc) => {
   const x = derive(doc);
   const set = { done: x.done, missing: x.missing, search: x.search };
-  if (EDITABLE.includes(doc.status)) set.status = x.status;
+  if (AUTO.includes(doc.status)) set.status = x.status;
   if (set.status && set.status !== doc.status) invalidate();
   await LibraryItem.updateOne({ _id: doc._id, rev: doc.rev }, { $set: set });
   return { ...doc, ...set };
@@ -153,18 +171,24 @@ const settle = async (doc) => {
 const fileView = (f) => ({ fid: f.fid, id: f.id || '', link: f.link || '', kind: f.kind, part: f.part, version: f.version, name: f.name, mime: f.mime || '', size: f.size || 0, byName: f.byName, at: f.at });
 const claimView = (c, me) => (c?.userId ? { name: c.name, mine: c.userId === me, active: Date.now() - new Date(c.at) < CLAIM_MS } : null);
 const view = (doc, me, x = derive(doc)) => ({
-  uid: doc.uid, ref: refOf(doc.qno), status: EDITABLE.includes(doc.status) ? x.status : doc.status, existing: !!doc.existing, d: doc.d || {},
+  uid: doc.uid, ref: refOf(doc.qno), code: doc.code || null, status: AUTO.includes(doc.status) ? x.status : doc.status, existing: !!doc.existing, d: doc.d || {},
   meta: Object.fromEntries(Object.entries(doc.meta || {}).map(([k, m]) => [k, { r: m.r, byName: m.byName, at: m.at, mine: m.by === me }])),
   done: x.done, total: REQUIRED.length, missing: x.missing,
   files: (doc.files || []).map(fileView),
   claim: claimView(doc.claim, me),
   dup: doc.dupOf && !doc.dupDismissed ? { uid: doc.dupOf, ref: doc.dupRef } : null,
   history: (doc.history || []).slice(-30).reverse(),
+  sentBack: doc.status === 'sent' ? doc.sentBack : null,
+  sent: doc.sentAt ? { byName: doc.sentByName, at: doc.sentAt } : null,
+  urgent: doc.urgent?.at ? { reason: doc.urgent.reason, byName: doc.urgent.byName, at: doc.urgent.at } : null,
+  live: !!doc.live,
+  seal: doc.seal ? { code: doc.seal.code, byName: doc.seal.byName, at: doc.seal.at, self: doc.seal.self } : null,
+  publishAt: doc.publishAt || null, publishedAt: doc.publishedAt || null,
   createdByName: doc.createdByName, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
   here: here(doc.uid, me),
 });
 const card = (doc, me) => ({
-  uid: doc.uid, ref: refOf(doc.qno), title: doc.d?.title || '', status: doc.status, done: doc.done, total: REQUIRED.length,
+  uid: doc.uid, ref: refOf(doc.qno), code: doc.code || null, title: doc.d?.title || '', status: doc.status, done: doc.done, total: REQUIRED.length, live: !!doc.live,
   files: (doc.files || []).length,
   recording: (doc.files || []).some((f) => f.link || /^(audio|video)\//.test(f.mime || '')),
   existing: !!doc.existing,
@@ -209,7 +233,7 @@ const typeFor = (name, type) => {
 
 // POST /api/library/uploads { name, type, size } → where to send the file (whole, or in 8 MB parts)
 exports.uploadSlot = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   if (!storage.configured()) return res.status(503).json({ msg: 'File storage is not configured' });
   const name = text(req.body?.name, 200) || 'file';
   const size = Number(req.body?.size) || 0;
@@ -227,7 +251,7 @@ exports.uploadSlot = async (req, res) => {
 
 // POST /api/library/uploads/parts { id, uploadId, parts:[n] } → fresh links (they last 15 minutes) when resuming
 exports.partLinks = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const { id, uploadId } = req.body || {};
   const parts = (Array.isArray(req.body?.parts) ? req.body.parts : []).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 13);
   if (!storage.ID.test(String(id)) || typeof uploadId !== 'string' || uploadId.length > 1100) return res.status(400).json({ msg: 'Invalid request' });
@@ -236,7 +260,7 @@ exports.partLinks = async (req, res) => {
 
 // POST /api/library/uploads/abort { id, uploadId } — an upload given up on
 exports.abortUpload = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const { id, uploadId } = req.body || {};
   if (storage.ID.test(String(id)) && typeof uploadId === 'string' && uploadId.length < 1100) await storage.abortParts(id, uploadId);
   res.json({ ok: true });
@@ -310,24 +334,27 @@ const countsFor = async (me, base) => {
     _id: null, all: { $sum: 1 },
     needs: { $sum: { $cond: [{ $eq: ['$status', 'needs'] }, 1, 0] } },
     ready: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
+    awaiting: { $sum: { $cond: [{ $eq: ['$status', 'awaiting'] }, 1, 0] } },
+    sent: { $sum: { $cond: [{ $eq: ['$status', 'sent'] }, 1, 0] } },
+    urgent: { $sum: { $cond: [{ $eq: ['$status', 'urgent'] }, 1, 0] } },
     existing: { $sum: { $cond: ['$existing', 1, 0] } },
     duplicates: { $sum: { $cond: [{ $and: [{ $gt: ['$dupOf', null] }, { $ne: ['$dupDismissed', true] }] }, 1, 0] } },
     mine: { $sum: { $cond: [{ $eq: ['$claim.userId', me] }, 1, 0] } },
   } }]);
   const { _id, ...c } = rows[0] || {};
-  const out = { all: 0, needs: 0, ready: 0, existing: 0, duplicates: 0, mine: 0, ...c };
+  const out = { all: 0, needs: 0, ready: 0, awaiting: 0, sent: 0, urgent: 0, existing: 0, duplicates: 0, mine: 0, ...c };
   if (countCache.size > 500) countCache.clear();
   countCache.set(me, { at: Date.now(), c: out });
   return out;
 };
 // GET /api/library/items?filter=&q=&sort=&page= — one page of cards (card fields only, for speed)
 exports.list = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const me = req.user.id;
-  const base = { status: { $in: EDITABLE } };
+  const base = { status: { $in: QUEUE } };
   const filter = String(req.query.filter || 'all');
   const q = { ...base };
-  if (filter === 'needs' || filter === 'ready') q.status = filter;
+  if (['needs', 'ready', 'awaiting', 'sent', 'urgent'].includes(filter)) q.status = filter;
   if (filter === 'existing') q.existing = true;
   if (filter === 'duplicates') { q.dupOf = { $exists: true, $ne: null }; q.dupDismissed = { $ne: true }; }
   if (filter === 'mine') q['claim.userId'] = me;
@@ -337,7 +364,7 @@ exports.list = async (req, res) => {
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const filtered = filter !== 'all' || !!words;
   const [rows, counts, count] = await Promise.all([
-    LibraryItem.find(q, { uid: 1, qno: 1, status: 1, 'd.title': 1, done: 1, 'files.link': 1, 'files.mime': 1, existing: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, live: 1, status: 1, 'd.title': 1, done: 1, 'files.link': 1, 'files.mime': 1, existing: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
       .sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
     countsFor(me, base),
     filtered ? LibraryItem.countDocuments(q) : null,
@@ -348,7 +375,7 @@ exports.list = async (req, res) => {
 
 // GET /api/library/items/:uid — everything about one item
 exports.get = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const doc = await LibraryItem.findOne({ uid: req.params.uid, status: { $ne: 'removed' } }).lean();
   if (!doc) return gone(res);
   res.json({ item: view(doc, req.user.id) });
@@ -356,7 +383,7 @@ exports.get = async (req, res) => {
 
 // POST /api/library/items { key, upload | link, kind?, part?, title? } — a copy joins the queue with its Q number
 exports.create = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const key = text(req.body?.key, 64) || null;
   // Already saved (the browser is retrying after a dropped connection)? Give back the same item.
   const again = async () => {
@@ -396,7 +423,7 @@ exports.create = async (req, res) => {
 // PATCH /api/library/items/:uid { field, value, base } — saves one detail. base = the field's revision the
 // browser last saw. If someone else changed that field since, nothing is saved and the answer says who and what.
 exports.save = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const { field } = req.body || {};
   const base = Number(req.body?.base) || 0;
   const c = clean(field, req.body?.value);
@@ -428,7 +455,7 @@ exports.save = async (req, res) => {
 
 // POST /api/library/items/:uid/files { upload | link, kind?, part? } — another score, part or recording
 exports.addFile = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const uid = req.params.uid;
   const cur = await LibraryItem.findOne({ uid }, { status: 1, files: 1, binned: 1, dupOf: 1 }).lean();
   if (!cur || cur.status === 'removed') return gone(res);
@@ -459,7 +486,7 @@ exports.addFile = async (req, res) => {
 
 // PATCH /api/library/items/:uid/files/:fid { kind?, part? }
 exports.changeFile = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const set = {};
   if (req.body?.kind !== undefined) { if (!LISTS.fileKinds.includes(req.body.kind)) return res.status(400).json({ msg: 'Choose a kind of file' }); set['files.$[f].kind'] = req.body.kind; }
   if (req.body?.part !== undefined) { const p = cleanTerm('parts', req.body.part); if (p.bad || !p.v) return res.status(400).json({ msg: 'Choose a part' }); set['files.$[f].part'] = p.v; }
@@ -473,7 +500,7 @@ exports.changeFile = async (req, res) => {
 
 // DELETE /api/library/items/:uid/files/:fid — the stored copy is kept 30 days, so a mistake can be undone
 exports.removeFile = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const cur = await LibraryItem.findOne({ uid: req.params.uid, status: { $in: EDITABLE }, 'files.fid': req.params.fid }, { files: 1 }).lean();
   if (!cur) return gone(res);
   const f = cur.files.find((x) => x.fid === req.params.fid);
@@ -491,7 +518,7 @@ exports.removeFile = async (req, res) => {
 // POST /api/library/items/:uid/claim { on } — "I'm working on this", so two people don't fill in the same song.
 // A claim lapses after 30 minutes without activity; anyone can still help with an item that is claimed.
 exports.claim = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const me = req.user.id;
   const uid = req.params.uid;
   if (req.body?.on === false) {
@@ -515,7 +542,7 @@ exports.claim = async (req, res) => {
 
 // POST /api/library/items/:uid/presence { field?, leave? } — who else has it open (checked every 15 seconds)
 exports.presence = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const uid = String(req.params.uid).slice(0, 60);
   if (!presence.has(uid)) presence.set(uid, new Map());
   if (req.body?.leave) presence.get(uid).delete(req.user.id);
@@ -525,7 +552,7 @@ exports.presence = async (req, res) => {
 
 // POST /api/library/items/:uid/duplicate { action: keep | merge } — the same file was uploaded twice
 exports.duplicate = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const me = req.user.id;
   const cur = await LibraryItem.findOne({ uid: req.params.uid, status: { $in: EDITABLE } }).lean();
   if (!cur || !cur.dupOf) return gone(res);
@@ -543,7 +570,7 @@ exports.duplicate = async (req, res) => {
   const now = new Date();
   // The item being merged away is closed first, so its files can never end up in both places
   const closed = await LibraryItem.findOneAndUpdate({ uid: cur.uid, status: { $in: EDITABLE } }, {
-    $set: { status: 'removed', mergedInto: target.uid, files: [] }, $push: { binned: { $each: bin }, history: { at: now, by: me, byName, ev: 'Merged', detail: `into ${refOf(target.qno)}` } }, $inc: { rev: 1 },
+    $set: { status: 'removed', mergedInto: target.uid, files: [], live: false }, $push: { binned: { $each: bin }, history: { at: now, by: me, byName, ev: 'Merged', detail: `into ${refOf(target.qno)}` } }, $inc: { rev: 1 },
   }, { new: true }).lean();
   if (!closed) return gone(res);
   await clearDupsOf(cur.uid);
@@ -560,12 +587,12 @@ exports.duplicate = async (req, res) => {
 
 // DELETE /api/library/items/:uid — takes an item out of the queue (its number is never reused; files kept 30 days)
 exports.remove = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const cur = await LibraryItem.findOne({ uid: req.params.uid, status: { $in: EDITABLE } }, { uid: 1, files: 1, qno: 1, d: 1 }).lean();
   if (!cur) return gone(res);
   const byName = await nameOf(req.user.id);
   await LibraryItem.updateOne({ uid: cur.uid, status: { $in: EDITABLE } }, {
-    $set: { status: 'removed', files: [] }, $push: { binned: { $each: cur.files.map((f) => ({ ...f, binnedAt: new Date() })) }, history: { at: new Date(), by: req.user.id, byName, ev: 'Removed from the queue' } }, $inc: { rev: 1 },
+    $set: { status: 'removed', files: [], live: false }, $push: { binned: { $each: cur.files.map((f) => ({ ...f, binnedAt: new Date() })) }, history: { at: new Date(), by: req.user.id, byName, ev: 'Removed from the queue' } }, $inc: { rev: 1 },
   });
   await clearDupsOf(cur.uid);
   invalidate();
@@ -575,7 +602,7 @@ exports.remove = async (req, res) => {
 
 // GET /api/library/lists — the official lists, people's own entries, and what is needed for approval
 exports.lists = async (req, res) => {
-  if (!may(req.user.roles)) return deny(res);
+  if (!(await staff(req))) return deny(res);
   const terms = await LibraryTerm.find({}, { list: 1, value: 1, uses: 1 }).sort({ uses: -1 }).limit(2000).lean();
   const custom = {};
   for (const t of terms) (custom[t.list] ||= []).push(t.value);
@@ -594,9 +621,306 @@ exports.startHousekeeping = () => {
       await LibraryItem.updateOne({ uid: doc.uid }, { $pull: { binned: { binnedAt: { $lt: cutoff } } } });
     }
   };
+  // Every 10 minutes: publish songs whose date has come, put back an approval interrupted half-way, and
+  // remind the approvers about urgent music still not reviewed after 7 days (at most once a day)
+  const often = async () => {
+    await publishDue(true);
+    await LibraryItem.updateMany({ status: 'approving', approvingAt: { $lt: new Date(Date.now() - 5 * 60000) }, code: { $exists: false } }, { $set: { status: 'awaiting' }, $unset: { approvingAt: '' } });
+    const week = new Date(Date.now() - 7 * 24 * 3600 * 1000); const day = new Date(Date.now() - 24 * 3600 * 1000);
+    const late = await LibraryItem.find({ live: true, 'urgent.at': { $lt: week }, $or: [{ 'urgent.remindedAt': { $exists: false } }, { 'urgent.remindedAt': { $lt: day } }] }, { uid: 1, qno: 1, d: 1 }).lean();
+    if (late.length) {
+      const ids = await approverUserIds();
+      for (const d of late) {
+        push.toUsers(ids, `${refOf(d.qno)} ${d.d?.title || ''} was published urgently over a week ago and still needs its details and approval`, `lib-late-${d.uid}`);
+        await LibraryItem.updateOne({ uid: d.uid }, { $set: { 'urgent.remindedAt': new Date() } });
+      }
+    }
+  };
+  setInterval(() => often().catch((e) => console.error('Library schedule:', e.message)), 10 * 60000).unref();
   setTimeout(() => run().catch((e) => console.error('Library housekeeping:', e.message)), 60000);
   setInterval(() => run().catch((e) => console.error('Library housekeeping:', e.message)), 6 * 3600 * 1000).unref();
 };
+
+/* ---------- stage B: approval, numbers, the seal, publishing ---------- */
+const pad = (n) => String(n).padStart(4, '0');
+const stable = (v) => (Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}` : JSON.stringify(v ?? null));
+const fingerprint = (d) => crypto.createHash('sha256').update(stable(d || {})).digest('hex');
+const lagosDay = () => lagosNow(new Date()).date;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const busy = () => ({ msg: 'This song is no longer waiting for approval' });
+
+// Everyone who approves, for "something is waiting" notifications
+const approverUserIds = async () => {
+  const byRole = await User.find({ status: 'active', roles: { $in: ROLE_APPROVERS, $nin: ['alumni'] } }, { _id: 1, email: 1 }).lean();
+  return [...new Set([...byRole.filter((u) => !isSystem(u)).map((u) => String(u._id)), ...(await approverIds())])];
+};
+// A notice for every member (and their phones); the same notice is never sent twice
+const announce = async (doc, kind, text) => {
+  const uid = `lib-${doc.uid}-${kind}`;
+  const date = lagosDay();
+  const r = await Notification.updateOne({ uid }, { $setOnInsert: { uid, text, date, readBy: [] } }, { upsert: true }).catch(() => ({}));
+  if (r.upsertedCount) push.toAll(text, uid);
+};
+const announcePublished = (doc) => announce(doc, 'published', `🎵 New music in the library: ${doc.d?.title || 'a new song'} (${doc.code})`);
+
+// GET /api/library/me — what this person may do in the library
+exports.me = async (req, res) => {
+  const approve = await isApprover(req);
+  res.json({ staff: may(req.user.roles) || approve, approve, manageApprovers: !(req.user.roles || []).includes('alumni') && (req.user.roles || []).some((r) => MANAGE_APPROVERS.includes(r)) });
+};
+
+// GET /api/library/approvers — who approves (by role, and those brought on board)
+exports.approvers = async (req, res) => {
+  if (!(await staff(req))) return deny(res);
+  const { ROLE_LABEL } = require('./data.controller');
+  const byRole = await User.find({ status: 'active', roles: { $in: ROLE_APPROVERS, $nin: ['alumni'] } }, { name: 1, roles: 1, email: 1 }).lean();
+  const added = await LibraryApprover.find().sort({ createdAt: 1 }).lean();
+  const users = new Map((await User.find({ _id: { $in: added.map((a) => a.userId) } }, { name: 1 }).lean()).map((u) => [String(u._id), u.name]));
+  res.json({
+    byRole: byRole.filter((u) => !isSystem(u)).map((u) => ({ id: String(u._id), name: u.name, role: u.roles.filter((r) => ROLE_APPROVERS.includes(r)).map((r) => ROLE_LABEL[r] || r).join(', ') })),
+    added: added.map((a) => ({ id: a.userId, name: users.get(a.userId) || 'Former member', byName: a.byName, at: a.createdAt })),
+  });
+};
+const canManage = (req) => !(req.user.roles || []).includes('alumni') && (req.user.roles || []).some((r) => MANAGE_APPROVERS.includes(r));
+// POST /api/library/approvers { userId } — the Choir Master or Assistant Choir Master brings someone on board
+exports.addApprover = async (req, res) => {
+  if (!canManage(req)) return res.status(403).json({ msg: 'Only the Choir Master, Assistant Choir Master or an admin can choose Music Approvers' });
+  const id = String(req.body?.userId || '');
+  const u = /^[0-9a-f]{24}$/.test(id) ? await User.findById(id, { name: 1, status: 1, roles: 1, email: 1 }).lean() : null;
+  if (!u || u.status !== 'active' || (u.roles || []).includes('alumni') || isSystem(u)) return res.status(400).json({ msg: 'Choose an active member' });
+  await LibraryApprover.updateOne({ userId: id }, { $setOnInsert: { userId: id, byId: req.user.id, byName: await nameOf(req.user.id) } }, { upsert: true });
+  approverCache.at = 0;
+  audit(req, 'LIBRARY_APPROVER', `${u.name} can now approve music`);
+  exports.approvers(req, res);
+};
+// DELETE /api/library/approvers/:userId
+exports.removeApprover = async (req, res) => {
+  if (!canManage(req)) return res.status(403).json({ msg: 'Only the Choir Master, Assistant Choir Master or an admin can choose Music Approvers' });
+  const r = await LibraryApprover.deleteOne({ userId: String(req.params.userId) });
+  approverCache.at = 0;
+  if (r.deletedCount) audit(req, 'LIBRARY_APPROVER', `${await nameOf(req.params.userId)} no longer approves music`);
+  exports.approvers(req, res);
+};
+
+// POST /api/library/items/:uid/send — every required detail is complete: off to the approvers (details locked meanwhile)
+exports.send = async (req, res) => {
+  if (!(await staff(req))) return deny(res);
+  for (let tries = 0; tries < 3; tries++) {
+    const cur = await LibraryItem.findOne({ uid: req.params.uid }).lean();
+    if (!cur || cur.status === 'removed') return gone(res);
+    if (!['needs', 'ready', 'sent', 'urgent'].includes(cur.status)) return res.status(409).json({ msg: cur.status === 'awaiting' ? 'It is already waiting for approval' : 'It has already been approved' });
+    const x = derive(cur);
+    if (x.missing.length) return res.status(400).json({ msg: 'Some required details are still missing', missing: x.missing });
+    const byName = await nameOf(req.user.id);
+    const doc = await LibraryItem.findOneAndUpdate({ uid: cur.uid, status: cur.status, rev: cur.rev }, {
+      $set: { status: 'awaiting', sentBy: req.user.id, sentByName: byName, sentAt: new Date(), done: x.done, missing: [] }, $unset: { sentBack: '' },
+      $push: { history: { $each: [{ at: new Date(), by: req.user.id, byName, ev: 'Sent for approval' }], $slice: -200 } }, $inc: { rev: 1 },
+    }, { new: true }).lean();
+    if (!doc) continue; // a detail changed at that very moment: check again
+    invalidate();
+    const others = (await approverUserIds()).filter((id) => id !== req.user.id);
+    push.toUsers(others, `🎼 ${refOf(doc.qno)} ${doc.d?.title || ''} is waiting for your approval`, `lib-wait-${doc.uid}`);
+    return res.json({ item: view(doc, req.user.id) });
+  }
+  res.status(409).json({ msg: 'It was being changed at that moment — please try again' });
+};
+
+// POST /api/library/items/:uid/sendback { reason } — back to the queue with a reason; all its details are kept
+exports.sendBack = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can send music back' });
+  const reason = text(req.body?.reason, 300);
+  if (!reason) return res.status(400).json({ msg: 'Say briefly what needs changing' });
+  const byName = await nameOf(req.user.id);
+  const doc = await LibraryItem.findOneAndUpdate({ uid: req.params.uid, status: 'awaiting' }, {
+    $set: { status: 'sent', sentBack: { reason, byName, at: new Date() } },
+    $push: { history: { $each: [{ at: new Date(), by: req.user.id, byName, ev: 'Sent back', detail: reason }], $slice: -200 } }, $inc: { rev: 1 },
+  }, { new: true }).lean();
+  if (!doc) return res.status(409).json(busy());
+  invalidate();
+  if (doc.sentBy && doc.sentBy !== req.user.id) push.toUsers([doc.sentBy], `${refOf(doc.qno)} ${doc.d?.title || ''} was sent back: ${reason}`, `lib-back-${doc.uid}`);
+  res.json({ item: view(doc, req.user.id) });
+};
+
+// GET /api/library/next?type=song|instrumental — the number the next approval would get (a preview only)
+exports.nextCode = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers' });
+  const series = req.query.type === 'instrumental' ? 'INS' : 'CHR';
+  res.json({ code: `${series}-${pad(await peekNumber(`lib${series}`))}` });
+};
+
+// POST /api/library/items/:uid/approve { publish: now | date | hold, date?, notify? }
+// Issues the next permanent number and seals exactly what was approved. If two approvers press Approve at the same
+// moment, one succeeds; the other is told who approved it and as what. A number is never issued twice.
+exports.approve = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can approve music' });
+  const publish = ['now', 'date', 'hold'].includes(req.body?.publish) ? req.body.publish : 'now';
+  const date = String(req.body?.date || '');
+  if (publish === 'date' && (!DAY.test(date) || date < lagosDay())) return res.status(400).json({ msg: 'Choose today or a later date to publish' });
+  const notify = req.body?.notify !== false;
+  const me = req.user.id;
+  const doc = await LibraryItem.findOneAndUpdate({ uid: req.params.uid, status: 'awaiting' }, { $set: { status: 'approving', approvingAt: new Date() } }, { new: true }).lean();
+  if (!doc) {
+    const cur = await LibraryItem.findOne({ uid: req.params.uid }, { code: 1, seal: 1, status: 1 }).lean();
+    if (cur?.code) return res.status(409).json({ code: 'APPROVED', msg: `Already approved by ${cur.seal?.byName || 'another approver'} as ${cur.code}` });
+    return res.status(409).json(busy());
+  }
+  try {
+    const x = derive(doc);
+    if (x.missing.length) throw Object.assign(new Error('missing'), { soft: 'Some required details are missing' });
+    const series = doc.d?.type === 'instrumental' ? 'INS' : 'CHR';
+    const n = await nextNumber(`lib${series}`);
+    const code = `${series}-${pad(n)}`;
+    const byName = await nameOf(me);
+    const at = new Date();
+    const seal = {
+      code, byId: me, byName, at, self: doc.sentBy === me, rev: doc.rev, details: fingerprint(doc.d),
+      files: (doc.files || []).map((f) => ({ fid: f.fid, kind: f.kind, part: f.part, version: f.version, etag: f.etag || null, size: f.size || 0, link: f.link || null })),
+    };
+    const now = publish === 'now';
+    const done = await LibraryItem.findOneAndUpdate({ uid: doc.uid, status: 'approving' }, {
+      $set: {
+        status: now ? 'published' : 'approved', code, codeNo: n, series, seal, notifyOnPublish: notify,
+        ...(now ? { publishedAt: at, live: false } : {}), ...(publish === 'date' ? { publishAt: new Date(`${date}T00:00:00+01:00`) } : {}),
+      },
+      $unset: { claim: '', approvingAt: '' },
+      $push: { history: { $each: [{ at, by: me, byName, ev: 'Approved', detail: `${refOf(doc.qno)} → ${code}${seal.self ? ' (self-approved)' : ''}${now ? ', published' : publish === 'date' ? `, to publish on ${date}` : ', held'}` }], $slice: -200 } },
+      $inc: { rev: 1 },
+    }, { new: true }).lean();
+    invalidate();
+    if (now && notify) announcePublished(done);
+    if (doc.sentBy && doc.sentBy !== me) push.toUsers([doc.sentBy], `${doc.d?.title || ''} was approved as ${code}${now ? ' and published' : ''}`, `lib-ok-${doc.uid}`);
+    audit(req, 'LIBRARY_APPROVE', `${refOf(doc.qno)} approved as ${code}${seal.self ? ' (self-approved)' : ''}: ${doc.d?.title || ''}`);
+    return res.json({ item: view(done, me) });
+  } catch (e) {
+    await LibraryItem.updateOne({ uid: doc.uid, status: 'approving' }, { $set: { status: 'awaiting' }, $unset: { approvingAt: '' } });
+    if (e.soft) return res.status(400).json({ msg: e.soft });
+    throw e;
+  }
+};
+
+const publishOne = async (cond, req) => {
+  const doc = await LibraryItem.findOneAndUpdate({ ...cond, status: 'approved' }, {
+    $set: { status: 'published', publishedAt: new Date(), live: false }, $unset: { publishAt: '' },
+    $push: { history: { $each: [{ at: new Date(), by: req?.user.id || '', byName: req ? await nameOf(req.user.id) : 'Schedule', ev: 'Published' }], $slice: -200 } }, $inc: { rev: 1 },
+  }, { new: true }).lean();
+  if (doc) { invalidate(); if (doc.notifyOnPublish !== false) announcePublished(doc); }
+  return doc;
+};
+// Approved songs whose publish date has come (checked when the library is opened, and every 10 minutes)
+let lastDue = 0;
+const publishDue = async (force = false) => {
+  if (!force && Date.now() - lastDue < 60000) return;
+  lastDue = Date.now();
+  const due = await LibraryItem.find({ status: 'approved', publishAt: { $lte: new Date() } }, { uid: 1 }).lean();
+  for (const d of due) await publishOne({ uid: d.uid });
+};
+
+// POST /api/library/items/:uid/publish — publish an approved, held song now
+exports.publish = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can publish music' });
+  const doc = await publishOne({ uid: req.params.uid }, req);
+  if (!doc) return res.status(409).json({ msg: 'Only approved songs that are waiting can be published' });
+  res.json({ item: view(doc, req.user.id) });
+};
+
+// GET /api/library/held — approved songs waiting for their publish date (or held)
+exports.held = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers' });
+  await publishDue();
+  const rows = await LibraryItem.find({ status: 'approved' }, { uid: 1, qno: 1, code: 1, 'd.title': 1, publishAt: 1, seal: 1 }).sort({ codeNo: 1 }).lean();
+  res.json({ items: rows.map((r) => ({ uid: r.uid, code: r.code, title: r.d?.title || '', publishAt: r.publishAt || null, approvedBy: r.seal?.byName, approvedAt: r.seal?.at })) });
+};
+
+// POST /api/library/items/:uid/urgent { reason } — needed straight away: members can use it at once, marked
+// "Urgent · not yet reviewed". It keeps its Q number and stays in the queue until it is approved normally.
+exports.urgent = async (req, res) => {
+  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can publish urgently' });
+  const reason = text(req.body?.reason, 200);
+  if (!reason) return res.status(400).json({ msg: 'Say why it is needed now (e.g. "Needed for Sunday")' });
+  const byName = await nameOf(req.user.id);
+  const at = new Date();
+  const doc = await LibraryItem.findOneAndUpdate({ uid: req.params.uid, status: { $in: ['needs', 'ready', 'sent'] }, 'files.0': { $exists: true } }, {
+    $set: { status: 'urgent', live: true, urgent: { reason, byId: req.user.id, byName, at } },
+    $push: { history: { $each: [{ at, by: req.user.id, byName, ev: 'Published urgently', detail: reason }], $slice: -200 } }, $inc: { rev: 1 },
+  }, { new: true }).lean();
+  if (!doc) return res.status(409).json({ msg: 'Only music still in the queue (with a file) can be published urgently' });
+  invalidate();
+  announce(doc, 'urgent', `🎵 ${doc.d?.title || 'New music'} is available now (urgent, not yet reviewed)`);
+  audit(req, 'LIBRARY_URGENT', `${refOf(doc.qno)} published urgently: ${doc.d?.title || ''} (${reason})`);
+  res.json({ item: view(doc, req.user.id) });
+};
+
+/* ---------- the catalogue every member sees ---------- */
+const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
+const visible = { $or: [{ status: 'published' }, { live: true }] };
+const partsOf = (files) => {
+  const has = new Set();
+  for (const f of files || []) {
+    if (f.part === 'Full' && /score|recording|lyrics|chord/i.test(f.kind)) VOICES.forEach((v) => has.add(v));
+    const v = VOICES.find((x) => String(f.part || '').startsWith(x)); if (v) has.add(v);
+  }
+  return VOICES.filter((v) => has.has(v));
+};
+// Published songs give members only the files that match their approval seal
+const sealedFiles = (doc) => {
+  if (doc.status !== 'published' || !doc.seal) return doc.files || [];
+  const ok = new Map((doc.seal.files || []).map((f) => [f.fid, f]));
+  return (doc.files || []).filter((f) => { const s = ok.get(f.fid); return s && (s.etag || null) === (f.etag || null) && (s.size || 0) === (f.size || 0); });
+};
+const catCard = (doc) => ({
+  uid: doc.uid, code: doc.code || null, ref: refOf(doc.qno), title: doc.d?.title || '', status: doc.status === 'published' ? 'published' : 'urgent',
+  summary: [doc.d?.genre, doc.d?.choirKey, (doc.d?.massParts || [])[0] || (doc.d?.occasions || [])[0]].filter(Boolean).join(' · '),
+  parts: partsOf(sealedFiles(doc)), files: sealedFiles(doc).length, type: doc.d?.type || 'song',
+});
+
+// GET /api/library/catalogue?type=&q=&sort=&page= — published music (and urgent music, marked), card fields only
+exports.catalogue = async (req, res) => {
+  await publishDue();
+  const q = { ...visible };
+  if (req.query.type === 'instrumental') q['d.type'] = 'instrumental';
+  else if (req.query.type === 'song') q['d.type'] = { $ne: 'instrumental' };
+  const words = text(req.query.q, 80).toLowerCase();
+  if (words) q.search = { $regex: esc(words) };
+  const sort = { title: { 'd.title': 1 }, newest: { publishedAt: -1, 'urgent.at': -1 } }[req.query.sort] || { series: 1, codeNo: 1, qno: 1 };
+  const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
+  const [rows, total] = await Promise.all([
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.genre': 1, 'd.choirKey': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.type': 1, 'files.fid': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1 })
+      .collation({ locale: 'en', strength: 2 }).sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
+    LibraryItem.countDocuments(q),
+  ]);
+  res.json({ items: rows.map(catCard), total, page, pages: Math.max(1, Math.ceil(total / PAGE)) });
+};
+
+// GET /api/library/catalogue/:uid — one song's page for members: details, copyright and its files
+exports.song = async (req, res) => {
+  const doc = await LibraryItem.findOne({ uid: req.params.uid, ...visible }).lean();
+  if (!doc) return res.status(404).json({ msg: 'This music is not in the library' });
+  res.json({
+    song: {
+      ...catCard(doc), d: doc.d || {}, files: sealedFiles(doc).map(fileView),
+      approved: doc.status === 'published' && doc.seal ? { byName: doc.seal.byName, at: doc.seal.at, self: !!doc.seal.self, verified: sealedFiles(doc).length === (doc.files || []).length } : null,
+      urgent: doc.status !== 'published' && doc.urgent?.at ? { reason: doc.urgent.reason, at: doc.urgent.at } : null,
+      publishedAt: doc.publishedAt || null,
+    },
+  });
+};
+
+// Catalogue songs as simple song records, so Calendar setlists, My Account and search can use them
+exports.catalogueAsSongs = async () => {
+  await publishDue();
+  // Only what a song list needs (titles, Mass parts and seasons, and each file's few identifying fields)
+  const rows = await LibraryItem.find(visible, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.seasons': 1, 'files.fid': 1, 'files.id': 1, 'files.kind': 1, 'files.part': 1, 'files.mime': 1, 'files.name': 1, 'files.etag': 1, 'files.size': 1, 'seal.files': 1 }).lean();
+  return rows.map((doc) => {
+    const files = sealedFiles(doc);
+    const play = files.find((f) => /^(audio|video)\//.test(f.mime || '') && f.id) || files.find((f) => f.id);
+    return {
+      id: doc.uid, title: doc.code ? `${doc.d?.title || ''}` : `${doc.d?.title || ''} (urgent, not yet reviewed)`, code: doc.code || refOf(doc.qno), catalogue: true,
+      part: partsOf(files).length === 4 ? 'All parts' : partsOf(files).join(', '), categories: [...(doc.d?.massParts || []), ...(doc.d?.occasions || []), ...(doc.d?.seasons || [])],
+      fileUrl: play?.id || '', fileName: play?.name || '', mime: play?.mime || '', format: play ? (/^audio/.test(play.mime) ? 'Audio' : 'PDF Score') : '',
+    };
+  });
+};
+exports.visibleIds = async (ids) => new Set((await LibraryItem.find({ uid: { $in: ids }, ...visible }, { uid: 1 }).lean()).map((d) => d.uid));
 
 exports.FIELDS = FIELDS;
 exports.REQUIRED = REQUIRED;

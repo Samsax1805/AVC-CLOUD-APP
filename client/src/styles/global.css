@@ -1170,3 +1170,35 @@ i.bday{background:#ec4899;border-radius:2px}
   .lib-row-s,.lib-row-w{grid-column:2}
   .lib-dup{padding-left:78px}
 }
+
+/* ---------- Music Library: approvals and catalogue (stage B) ---------- */
+.lib-code{font-weight:800;color:var(--gold2);letter-spacing:.5px;font-size:12px;white-space:nowrap}
+.lib-st-await{background:#fbefd5;color:#9a6a12}.lib-st-sent{background:#fdeaea;color:#a32626}.lib-st-urgent{background:#fde2c4;color:#9a4a00}.lib-st-pub{background:#e3f2e7;color:#2f7a4a}
+.lib-banner.info{background:#eef2fb;border-color:#cdd8f0}.lib-banner.warn{background:#fdf0e1;border-color:#f1cf9f}
+.lib-urgent-btn{background:#fde2c4;color:#9a4a00;font-weight:700}
+.lib-appr{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;padding:10px 12px}
+.lib-appr>*{min-width:0}
+.lib-act{padding:10px 12px 12px;background:#fdf9ef;border-top:1px dashed var(--line)}
+.lib-big-code{font-size:22px;font-weight:800;color:var(--gold2);margin:2px 0}
+.lib-check-line{display:flex;gap:8px;align-items:center;font-size:12px;margin-top:10px}
+.lib-cat{margin-bottom:14px}
+.lib-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.lib-card{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;color:inherit;min-width:0}
+.lib-card:hover{border-color:var(--gold)}
+.lib-card.urgent{border-style:dashed;border-color:#e0a46a}
+.lib-card-top,.lib-card-bot{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.lib-card-t{font-family:'Playfair Display',serif;font-variant:small-caps;font-weight:700;font-size:14.5px;color:var(--ink);line-height:1.2}
+.lib-dots{display:flex;gap:4px}
+.lib-dots i{font-style:normal;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:#e8e0cd;color:#b2a688}
+.lib-dots i.on{background:var(--navy);color:#fff}
+.lib-song-files{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:6px}
+.lib-song-file{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12.5px}
+.lib-song-file:last-child{border-bottom:0}
+.lib-song-file.mine{background:#fdf6e6}
+.lib-kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12.5px;margin-top:6px}
+.lib-kv dt{color:var(--mut)}.lib-kv dd{margin:0}
+.lib-sealed{margin-top:12px;font-size:12px;font-weight:600;color:#2f7a4a}
+@media(max-width:920px){.lib-cards{grid-template-columns:1fr}.lib-appr{grid-template-columns:56px 1fr}.lib-appr-btns{grid-column:1/3}.lib-song-file{grid-template-columns:1fr auto}.lib-song-file .btn{grid-column:1/3}}
+.lib-appr.two{grid-template-columns:1fr auto}
+/* the chosen option stands out (small chips are pale by default) */
+.lib-queue .chip.sm.on,.lib-cat .chip.sm.on,.lib-act .chip.sm.on{background:var(--navy);color:#fff}

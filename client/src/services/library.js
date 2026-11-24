@@ -121,3 +121,18 @@ export const addFileTo = async (uid, body, { onWait } = {}) => {
 };
 
 export const sizeLabel = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+// Stage B: who may do what, approval, publishing, urgent publishing, Music Approvers, the catalogue
+export const libraryMe = () => api.get('/library/me').then(({ data }) => data);
+export const sendItem = (uid) => api.post(`/library/items/${uid}/send`).then(({ data }) => data.item);
+export const sendBackItem = (uid, reason) => api.post(`/library/items/${uid}/sendback`, { reason }).then(({ data }) => data.item);
+export const approveItem = (uid, body) => api.post(`/library/items/${uid}/approve`, body).then(({ data }) => data.item);
+export const publishItem = (uid) => api.post(`/library/items/${uid}/publish`).then(({ data }) => data.item);
+export const urgentItem = (uid, reason) => api.post(`/library/items/${uid}/urgent`, { reason }).then(({ data }) => data.item);
+export const nextCode = (type) => api.get('/library/next', { params: { type } }).then(({ data }) => data.code);
+export const heldItems = () => api.get('/library/held').then(({ data }) => data.items);
+export const listApprovers = () => api.get('/library/approvers').then(({ data }) => data);
+export const addApprover = (userId) => api.post('/library/approvers', { userId }).then(({ data }) => data);
+export const removeApprover = (userId) => api.delete(`/library/approvers/${userId}`).then(({ data }) => data);
+export const catalogue = (params) => api.get('/library/catalogue', { params }).then(({ data }) => data);
+export const catalogueSong = (uid) => api.get(`/library/catalogue/${uid}`).then(({ data }) => data.song);

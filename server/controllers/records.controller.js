@@ -193,7 +193,9 @@ exports.pay = async (req, res) => {
 exports.songs = async (req, res) => {
   const docs = await R.Song.find({}, { preview: 0 }).lean();
   const withPreview = new Set((await R.Song.find({ preview: { $nin: [null, ''] } }, { uid: 1 }).lean()).map((d) => d.uid));
-  res.json({ songs: docs.map((d) => ({ ...shape(d), hasPreview: withPreview.has(d.uid) })) });
+  // Published catalogue music joins the list, so setlists, My Account and search can use it too
+  const catalogue = await require('./library.controller').catalogueAsSongs().catch(() => []);
+  res.json({ songs: [...docs.map((d) => ({ ...shape(d), hasPreview: withPreview.has(d.uid) })), ...catalogue] });
 };
 
 // GET /api/records/songs/:id/preview — one song's picture preview, as an image the browser may keep for a day

@@ -4,8 +4,16 @@ const auth = require('../middleware/auth');
 const safe = require('../middleware/safe');
 const r = express.Router();
 
-// Choir Music & Instrument Library: the upload queue (stage A)
+// Choir Music & Instrument Library: the upload queue (stage A); approval, publishing and the catalogue (stage B)
 r.get('/lists', auth, safe(c.lists));
+r.get('/me', auth, safe(c.me));
+r.get('/approvers', auth, safe(c.approvers));
+r.post('/approvers', auth, safe(c.addApprover));
+r.delete('/approvers/:userId', auth, safe(c.removeApprover));
+r.get('/next', auth, safe(c.nextCode));
+r.get('/held', auth, safe(c.held));
+r.get('/catalogue', auth, safe(c.catalogue));
+r.get('/catalogue/:uid', auth, safe(c.song));
 r.post('/uploads', auth, safe(c.uploadSlot));
 r.post('/uploads/parts', auth, safe(c.partLinks));
 r.post('/uploads/abort', auth, safe(c.abortUpload));
@@ -20,5 +28,10 @@ r.delete('/items/:uid/files/:fid', auth, safe(c.removeFile));
 r.post('/items/:uid/claim', auth, safe(c.claim));
 r.post('/items/:uid/presence', auth, safe(c.presence));
 r.post('/items/:uid/duplicate', auth, safe(c.duplicate));
+r.post('/items/:uid/send', auth, safe(c.send));
+r.post('/items/:uid/sendback', auth, safe(c.sendBack));
+r.post('/items/:uid/approve', auth, safe(c.approve));
+r.post('/items/:uid/publish', auth, safe(c.publish));
+r.post('/items/:uid/urgent', auth, safe(c.urgent));
 
 module.exports = r;

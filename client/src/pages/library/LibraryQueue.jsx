@@ -5,10 +5,10 @@ import { ACCEPT, createItem, listItems, loadLists, problem, settleDuplicate, upl
 
 // The upload queue (design page 8): copies go in first, are saved at once with a Q number, and wait here
 // until their details are complete. Only officers who manage music see it.
-const FILTERS = [['all', 'All'], ['needs', 'Needs details'], ['ready', 'Ready to send'], ['mine', 'Claimed by me'], ['existing', 'Existing songs'], ['duplicates', 'Duplicates']];
-const STATUS = { needs: ['Needs details', 'lib-st-needs'], ready: ['Ready to send', 'lib-st-ready'] };
+const FILTERS = [['all', 'All'], ['needs', 'Needs details'], ['ready', 'Ready to send'], ['sent', 'Sent back'], ['urgent', 'Urgent'], ['awaiting', 'Awaiting approval'], ['mine', 'Claimed by me'], ['existing', 'Existing songs'], ['duplicates', 'Duplicates']];
+const STATUS = { needs: ['Needs details', 'lib-st-needs'], ready: ['Ready to send', 'lib-st-ready'], awaiting: ['Awaiting approval', 'lib-st-await'], sent: ['Sent back', 'lib-st-sent'], urgent: ['Urgent · not yet reviewed', 'lib-st-urgent'] };
 
-export default function LibraryQueue({ ctx }) {
+export default function LibraryQueue({ ctx, perms = {} }) {
   const { toast, me } = ctx;
   const [lists, setLists] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -48,7 +48,7 @@ export default function LibraryQueue({ ctx }) {
   };
   const addLink = () => createItem({ link: { url: link.trim() } }).then((it) => { setLink(''); toast(`Saved as ${it.ref}`); load(); }).catch((e) => toast(problem(e), 'err'));
 
-  if (open) return <ItemEditor uid={open} lists={lists} me={me} toast={toast} onChanged={load} onClose={() => { setOpen(null); load(); }} />;
+  if (open) return <ItemEditor uid={open} lists={lists} me={me} perms={perms} toast={toast} onChanged={load} onClose={() => { setOpen(null); load(); }} />;
   const c = data?.counts || {};
 
   return (

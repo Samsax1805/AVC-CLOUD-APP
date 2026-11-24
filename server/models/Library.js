@@ -30,7 +30,18 @@ const LibraryItem = mongoose.model('LibraryItem', new mongoose.Schema({
   uid: { type: String, unique: true },
   ckey: { type: String, unique: true, sparse: true }, // the browser's own id for this upload, so a retried upload never makes two items
   qno: { type: Number, unique: true },
-  status: { type: String, default: 'needs', index: true }, // needs · ready (stage A); more in stage B · removed
+  // needs · ready (filled in) · awaiting (sent for approval, locked) · sent (sent back) · urgent (published urgently, still in the queue)
+  // approving (for a moment while its number is issued) · approved (numbered, waiting to publish) · published · removed
+  status: { type: String, default: 'needs', index: true },
+  code: { type: String, unique: true, sparse: true }, // CHR-0017 / INS-0004, issued only by approval
+  codeNo: Number,
+  series: String,
+  seal: { type: mongoose.Schema.Types.Mixed }, // what exactly was approved: details fingerprint and each file's storage fingerprint
+  live: Boolean, // members can see it (published urgently, before its approval)
+  urgent: { reason: String, byId: String, byName: String, at: Date, remindedAt: Date },
+  sentBy: String, sentByName: String, sentAt: Date,
+  sentBack: { reason: String, byName: String, at: Date },
+  publishAt: Date, publishedAt: Date, notifyOnPublish: Boolean, approvingAt: Date,
   existing: Boolean, // a song from before the catalogue (stage C)
   legacySongId: String,
   d: { type: mongoose.Schema.Types.Mixed, default: {} }, // the details (see controllers/library.controller.js FIELDS)
@@ -49,7 +60,7 @@ const LibraryItem = mongoose.model('LibraryItem', new mongoose.Schema({
   createdBy: String,
   createdByName: String,
   history: [{ _id: false, at: Date, by: String, byName: String, ev: String, detail: String }],
-}, { timestamps: true, minimize: false }).index({ status: 1, qno: 1 }).index({ 'files.etag': 1 }));
+}, { timestamps: true, minimize: false }).index({ status: 1, qno: 1 }).index({ 'files.etag': 1 }).index({ status: 1, series: 1, codeNo: 1 }).index({ live: 1 }));
 
 // Entries people typed into a list themselves ("+ Other"). Suggested to everyone, marked "added by members".
 const LibraryTerm = mongoose.model('LibraryTerm', new mongoose.Schema({
@@ -61,6 +72,13 @@ const LibraryTerm = mongoose.model('LibraryTerm', new mongoose.Schema({
   byName: String,
 }, { timestamps: true }).index({ list: 1, lower: 1 }, { unique: true }));
 
+// Members the Choir Master or Assistant Choir Master brought on board to approve music (decision 1)
+const LibraryApprover = mongoose.model('LibraryApprover', new mongoose.Schema({
+  userId: { type: String, unique: true }, byId: String, byName: String,
+}, { timestamps: true }));
+
 const nextNumber = async (name) => (await Counter.findOneAndUpdate({ _id: name }, { $inc: { seq: 1 } }, { upsert: true, new: true })).seq;
 
-module.exports = { Counter, LibraryItem, LibraryTerm, nextNumber };
+const peekNumber = async (name) => ((await Counter.findById(name).lean())?.seq || 0) + 1;
+
+module.exports = { Counter, LibraryItem, LibraryTerm, LibraryApprover, nextNumber, peekNumber };
