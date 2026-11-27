@@ -17,9 +17,10 @@ export default function Approvals({ ctx, perms }) {
   const [act, setAct] = useState(null); // { uid, kind: 'approve' | 'back', ... }
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => {
-    listItems({ filter: 'awaiting', sort: 'oldest' }).then((d) => setWaiting(d.items)).catch(() => setWaiting([]));
+    // The Custodian approves only music that came from a member's song request
+    listItems({ filter: 'awaiting', sort: 'oldest' }).then((d) => setWaiting(perms.approve ? d.items : d.items.filter((it) => it.request))).catch(() => setWaiting([]));
     heldItems().then(setHeld).catch(() => {});
-  }, []);
+  }, [perms.approve]);
   useEffect(() => { load(); loadLists().then(setLists).catch(() => {}); }, [load]);
 
   const startApprove = async (it) => {
@@ -34,12 +35,13 @@ export default function Approvals({ ctx, perms }) {
       <div className="card">
         <div className="lib-list-h"><div className="lib-side-h">Waiting for approval <span className="muted small">· {waiting?.length ?? '…'}</span></div></div>
         {waiting && !waiting.length && <p className="muted small" style={{ padding: '12px 0' }}>Nothing is waiting for approval.</p>}
+        {!perms.approve && <p className="muted tiny" style={{ margin: '6px 0 0' }}>As Custodian you approve songs that came from members' song requests. Other music is approved by the Choir Master, Assistant Choir Master, President or admin.</p>}
         <div className="lib-rows" style={{ marginTop: 10 }}>
           {waiting?.map((it) => (
             <div key={it.uid} className="lib-row">
               <div className="lib-appr">
                 <span className="lib-q">{it.ref}</span>
-                <span className="lib-row-t"><b>{it.title}</b><span className="muted tiny">{it.files} file{it.files === 1 ? '' : 's'}{it.recording ? ' · recording' : ''}{it.live ? ' · published urgently' : ''}</span></span>
+                <span className="lib-row-t"><b>{it.title}</b><span className="muted tiny">{it.request ? `Requested by ${it.request} · ` : ''}{it.files} file{it.files === 1 ? '' : 's'}{it.recording ? ' · recording' : ''}{it.live ? ' · published urgently' : ''}</span></span>
                 <span className="chip-row lib-appr-btns">
                   <button type="button" className="btn btn-sm btn-soft" onClick={() => setReview(it.uid)}>Review</button>
                   <button type="button" className="btn btn-sm btn-danger-soft" onClick={() => setAct({ uid: it.uid, kind: 'back', reason: '' })}>Send back</button>

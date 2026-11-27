@@ -140,3 +140,22 @@ export const catalogueFilters = (params) => api.get('/library/catalogue/filters'
 export const songRequests = () => api.get('/library/requests').then(({ data }) => data);
 export const requestSong = (body) => api.post('/library/requests', body).then(({ data }) => data.request);
 export const answerRequest = (id, body) => api.patch(`/library/requests/${id}`, body).then(({ data }) => data.request);
+export const similarSongs = (title) => api.get('/library/requests/similar', { params: { title } }).then(({ data }) => data.songs);
+export const addRequestToLibrary = (id) => api.post(`/library/requests/${id}/add`).then(({ data }) => data);
+// A member's score for a song request: one PDF or picture, up to 20 MB (in parts above 8 MB)
+export const uploadRequestScore = async (file, onProgress) => {
+  let slot;
+  try { ({ data: slot } = await api.post('/library/requests/upload', { name: file.name, type: file.type, size: file.size })); } catch (e) { throw new Error(problem(e, 'The score could not be uploaded')); }
+  const fail = () => { throw new Error('The score could not be uploaded — check your connection and try again'); };
+  if (!slot.uploadId) {
+    await put(slot.url, file, slot.headers, (n) => onProgress?.(n / file.size)).catch(fail);
+    return { id: slot.id, name: file.name, type: slot.type };
+  }
+  const parts = [];
+  for (let n = 1; n <= slot.urls.length; n++) {
+    const from = (n - 1) * slot.partSize;
+    const etag = await put(slot.urls[n - 1], file.slice(from, Math.min(file.size, from + slot.partSize)), {}, (b) => onProgress?.((from + b) / file.size)).catch(fail);
+    parts.push({ n, etag });
+  }
+  return { id: slot.id, uploadId: slot.uploadId, parts, name: file.name, type: slot.type };
+};

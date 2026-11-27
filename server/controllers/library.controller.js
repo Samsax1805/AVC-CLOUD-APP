@@ -31,6 +31,9 @@ const approverIds = async () => {
 const isApprover = async (req) => !(req.user.roles || []).includes('alumni')
   && ((req.user.roles || []).some((r) => ROLE_APPROVERS.includes(r)) || (await approverIds()).has(req.user.id));
 const staff = async (req) => may(req.user.roles) || isApprover(req);
+// The Custodian may also approve music that came from a member's song request
+const isCustodian = (req) => !(req.user.roles || []).includes('alumni') && (req.user.roles || []).includes('custodian');
+const mayApprove = async (req, uid) => (await isApprover(req)) || (isCustodian(req) && !!(await LibraryItem.exists({ uid, fromRequest: { $exists: true, $ne: null } })));
 const AUTO = ['needs', 'ready']; // statuses worked out from the details
 const EDITABLE = ['needs', 'ready', 'sent', 'urgent'];
 const QUEUE = [...EDITABLE, 'awaiting'];
@@ -176,6 +179,7 @@ const fileView = (f) => ({ fid: f.fid, id: f.id || '', link: f.link || '', kind:
 const claimView = (c, me) => (c?.userId ? { name: c.name, mine: c.userId === me, active: Date.now() - new Date(c.at) < CLAIM_MS } : null);
 const view = (doc, me, x = derive(doc)) => ({
   uid: doc.uid, ref: refOf(doc.qno), code: doc.code || null, status: AUTO.includes(doc.status) ? x.status : doc.status, existing: !!doc.existing, d: doc.d || {},
+  request: doc.fromRequest ? { id: doc.fromRequest, byName: doc.requestByName || 'a member' } : null,
   meta: Object.fromEntries(Object.entries(doc.meta || {}).map(([k, m]) => [k, { r: m.r, byName: m.byName, at: m.at, mine: m.by === me }])),
   done: x.done, total: REQUIRED.length, missing: x.missing, rev: doc.rev,
   files: (doc.files || []).map(fileView),
@@ -197,6 +201,7 @@ const card = (doc, me) => ({
   files: (doc.files || []).length,
   recording: (doc.files || []).some((f) => f.link || /^(audio|video)\//.test(f.mime || '')),
   existing: !!doc.existing,
+  request: doc.fromRequest ? doc.requestByName || 'a member' : null,
   dup: doc.dupOf && !doc.dupDismissed ? doc.dupRef : null,
   claim: claimView(doc.claim, me),
   editing: here(doc.uid, me).map((p) => p.name),
@@ -369,7 +374,7 @@ exports.list = async (req, res) => {
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const filtered = filter !== 'all' || !!words;
   const [rows, counts, count] = await Promise.all([
-    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, live: 1, status: 1, preview: 1, 'd.title': 1, done: 1, 'files.id': 1, 'files.fid': 1, 'files.name': 1, 'files.link': 1, 'files.mime': 1, existing: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, live: 1, status: 1, preview: 1, 'd.title': 1, done: 1, 'files.id': 1, 'files.fid': 1, 'files.name': 1, 'files.link': 1, 'files.mime': 1, existing: 1, fromRequest: 1, requestByName: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
       .sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
     countsFor(me, base),
     filtered ? LibraryItem.countDocuments(q) : null,
@@ -673,7 +678,7 @@ const announcePublished = (doc) => announce(doc, 'published', `🎵 New music in
 // GET /api/library/me — what this person may do in the library
 exports.me = async (req, res) => {
   const approve = await isApprover(req);
-  res.json({ staff: may(req.user.roles) || approve, approve, manageApprovers: !(req.user.roles || []).includes('alumni') && (req.user.roles || []).some((r) => MANAGE_APPROVERS.includes(r)) });
+  res.json({ staff: may(req.user.roles) || approve, approve, approveRequests: !approve && isCustodian(req), manageApprovers: !(req.user.roles || []).includes('alumni') && (req.user.roles || []).some((r) => MANAGE_APPROVERS.includes(r)) });
 };
 
 // GET /api/library/approvers — who approves (by role, and those brought on board)
@@ -734,7 +739,7 @@ exports.send = async (req, res) => {
 
 // POST /api/library/items/:uid/sendback { reason } — back to the queue with a reason; all its details are kept
 exports.sendBack = async (req, res) => {
-  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can send music back' });
+  if (!(await mayApprove(req, req.params.uid))) return res.status(403).json({ msg: 'Only Music Approvers can send music back' });
   const reason = text(req.body?.reason, 300);
   if (!reason) return res.status(400).json({ msg: 'Say briefly what needs changing' });
   const byName = await nameOf(req.user.id);
@@ -750,7 +755,7 @@ exports.sendBack = async (req, res) => {
 
 // GET /api/library/next?type=song|instrumental — the number the next approval would get (a preview only)
 exports.nextCode = async (req, res) => {
-  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers' });
+  if (!(await isApprover(req)) && !isCustodian(req)) return res.status(403).json({ msg: 'Only Music Approvers' });
   const series = req.query.type === 'instrumental' ? 'INS' : 'CHR';
   res.json({ code: `${series}-${pad(await peekNumber(`lib${series}`))}` });
 };
@@ -759,7 +764,7 @@ exports.nextCode = async (req, res) => {
 // Issues the next permanent number and seals exactly what was approved. If two approvers press Approve at the same
 // moment, one succeeds; the other is told who approved it and as what. A number is never issued twice.
 exports.approve = async (req, res) => {
-  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can approve music' });
+  if (!(await mayApprove(req, req.params.uid))) return res.status(403).json({ msg: 'Only Music Approvers can approve music' });
   const publish = ['now', 'date', 'hold'].includes(req.body?.publish) ? req.body.publish : 'now';
   const date = String(req.body?.date || '');
   if (publish === 'date' && (!DAY.test(date) || date < lagosDay())) return res.status(400).json({ msg: 'Choose today or a later date to publish' });
@@ -795,6 +800,7 @@ exports.approve = async (req, res) => {
     }, { new: true }).lean();
     invalidate();
     if (now && notify) announcePublished(done);
+    if (now) requestPublished(done);
     if (doc.sentBy && doc.sentBy !== me) push.toUsers([doc.sentBy], `${doc.d?.title || ''} was approved as ${code}${now ? ' and published' : ''}`, `lib-ok-${doc.uid}`);
     audit(req, 'LIBRARY_APPROVE', `${refOf(doc.qno)} approved as ${code}${seal.self ? ' (self-approved)' : ''}: ${doc.d?.title || ''}`);
     return res.json({ item: view(done, me) });
@@ -810,7 +816,7 @@ const publishOne = async (cond, req) => {
     $set: { status: 'published', publishedAt: new Date(), live: false }, $unset: { publishAt: '' },
     $push: { history: { $each: [{ at: new Date(), by: req?.user.id || '', byName: req ? await nameOf(req.user.id) : 'Schedule', ev: 'Published' }], $slice: -200 } }, $inc: { rev: 1 },
   }, { new: true }).lean();
-  if (doc) { invalidate(); if (doc.notifyOnPublish !== false) announcePublished(doc); }
+  if (doc) { invalidate(); if (doc.notifyOnPublish !== false) announcePublished(doc); requestPublished(doc); }
   return doc;
 };
 // Approved songs whose publish date has come (checked when the library is opened, and every 10 minutes)
@@ -824,7 +830,7 @@ const publishDue = async (force = false) => {
 
 // POST /api/library/items/:uid/publish — publish an approved, held song now
 exports.publish = async (req, res) => {
-  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers can publish music' });
+  if (!(await mayApprove(req, req.params.uid))) return res.status(403).json({ msg: 'Only Music Approvers can publish music' });
   const doc = await publishOne({ uid: req.params.uid }, req);
   if (!doc) return res.status(409).json({ msg: 'Only approved songs that are waiting can be published' });
   res.json({ item: view(doc, req.user.id) });
@@ -832,9 +838,10 @@ exports.publish = async (req, res) => {
 
 // GET /api/library/held — approved songs waiting for their publish date (or held)
 exports.held = async (req, res) => {
-  if (!(await isApprover(req))) return res.status(403).json({ msg: 'Only Music Approvers' });
+  const full = await isApprover(req);
+  if (!full && !isCustodian(req)) return res.status(403).json({ msg: 'Only Music Approvers' });
   await publishDue();
-  const rows = await LibraryItem.find({ status: 'approved' }, { uid: 1, qno: 1, code: 1, 'd.title': 1, publishAt: 1, seal: 1 }).sort({ codeNo: 1 }).lean();
+  const rows = await LibraryItem.find({ status: 'approved', ...(full ? {} : { fromRequest: { $exists: true, $ne: null } }) }, { uid: 1, qno: 1, code: 1, 'd.title': 1, publishAt: 1, seal: 1 }).sort({ codeNo: 1 }).lean();
   res.json({ items: rows.map((r) => ({ uid: r.uid, code: r.code, title: r.d?.title || '', publishAt: r.publishAt || null, approvedBy: r.seal?.byName, approvedAt: r.seal?.at })) });
 };
 
@@ -981,7 +988,7 @@ exports.song = async (req, res) => {
   });
 };
 
-/* ---------- "Request a song": members ask, the Custodian answers ---------- */
+/* ---------- "Request a song": members ask (with a score and details if they have them), the Custodian answers ---------- */
 const requestKeepers = async () => {
   for (const role of [['custodian'], ['choirmaster', 'asstchoirmaster'], ['president']]) {
     const users = (await User.find({ status: 'active', roles: { $in: role, $nin: ['alumni'] } }, { _id: 1, email: 1 }).lean()).filter((u) => !isSystem(u));
@@ -993,31 +1000,151 @@ const tell = async (ids, msg, tag) => {
   await Promise.all(ids.map((userId) => ChatMessage.create({ userId, from: 'bot', text: msg }).catch(() => {})));
   push.toUsers(ids, msg.split('\n')[0], tag);
 };
-const requestView = (r, me) => ({ id: r.uid, title: r.title, details: r.details || '', neededBy: r.neededBy || '', byName: r.byName, mine: r.by === me, status: r.status, reply: r.reply || '', doneByName: r.doneByName || '', doneAt: r.doneAt || null, song: r.song || '', at: r.createdAt });
+const requestView = (r, me) => ({
+  id: r.uid, title: r.title, details: r.details || '', neededBy: r.neededBy || '', byName: r.byName, mine: r.by === me, status: r.status, reply: r.reply || '',
+  doneByName: r.doneByName || '', doneAt: r.doneAt || null, song: r.song || '', at: r.createdAt,
+  info: r.info || {}, file: r.file?.id ? { id: r.file.id, name: r.file.name, mime: r.file.mime, size: r.file.size } : null,
+  matches: r.matches || [], item: r.item || '', itemRef: r.itemRef || '',
+});
 const OPEN_MAX = 5;
+const LIVE_REQ = ['open', 'adding'];
+const REQ_MB = 20;
+const REQ_TYPE = /^(application\/pdf|image\/(jpeg|png|webp))$/;
+const REQ_INFO = { composer: 'composer', massPart: 'massParts', season: 'seasons', voicing: 'voicing', language: 'languages' };
+const slotsBy = new Map(); // userId → upload times in the last hour (members can't fill the storage)
 
-// GET /api/library/requests — the music team sees every request; others see their own
-exports.requests = async (req, res) => {
-  const team = await staff(req);
-  const rows = await SongRequest.find(team ? {} : { by: req.user.id }).sort({ status: 1, createdAt: -1 }).limit(100).lean();
-  const sorted = [...rows.filter((r) => r.status === 'open'), ...rows.filter((r) => r.status !== 'open')];
-  res.json({ team, requests: sorted.map((r) => requestView(r, req.user.id)) });
+// When a song made from a request is published, the member who asked is told
+const requestPublished = async (doc) => {
+  if (!doc?.fromRequest) return;
+  const r = await SongRequest.findOneAndUpdate({ uid: doc.fromRequest, status: { $in: LIVE_REQ } }, { $set: { status: 'found', song: doc.uid, doneByName: doc.seal?.byName || '', doneAt: new Date(), reply: `Added as ${doc.code}` } }, { new: true }).lean().catch(() => null);
+  if (r) tell([r.by], `✅ Your song request "${r.title}" is in the library now as ${doc.code}. Open it in Music & Files.`, `lib-req-${r.uid}`).catch(() => {});
 };
 
-// POST /api/library/requests { title, details, neededBy } — any member asks for music the library doesn't have
+// Songs in the catalogue whose title looks like this one
+const titleMatches = async (title) => {
+  const re = wordsRe(text(title, 120).toLowerCase());
+  if (!re) return [];
+  const rows = await LibraryItem.find({ ...visible, 'd.title': { $regex: re, $options: 'i' } }, { uid: 1, code: 1, qno: 1, 'd.title': 1 }).limit(5).lean();
+  return rows.map((d) => ({ uid: d.uid, code: d.code || refOf(d.qno), title: d.d?.title || '' }));
+};
+
+// GET /api/library/requests — the music team sees every request; others see their own. Also the lists for the form.
+exports.requests = async (req, res) => {
+  const team = await staff(req);
+  const rows = await SongRequest.find(team ? {} : { by: req.user.id }).sort({ createdAt: -1 }).limit(150).lean();
+  const sorted = [...rows.filter((r) => LIVE_REQ.includes(r.status)), ...rows.filter((r) => !LIVE_REQ.includes(r.status))];
+  res.json({ team, requests: sorted.map((r) => requestView(r, req.user.id)), lists: { massParts: LISTS.massParts, seasons: LISTS.seasons, voicing: LISTS.voicing, languages: LISTS.languages }, maxMb: REQ_MB });
+};
+
+// GET /api/library/requests/similar?title= — "already in the library?" while a member types
+exports.similar = async (req, res) => res.json({ songs: await titleMatches(req.query.title) });
+
+// POST /api/library/requests/upload { name, type, size } — a place to upload one score (PDF or picture, up to 20 MB)
+exports.requestUpload = async (req, res) => {
+  if ((req.user.roles || []).includes('alumni')) return res.status(403).json({ msg: 'Old Members can\'t request songs' });
+  if (!storage.configured()) return res.status(503).json({ msg: 'File storage is not configured' });
+  const name = text(req.body?.name, 200) || 'score.pdf';
+  const size = Number(req.body?.size) || 0;
+  const type = typeFor(name, req.body?.type);
+  if (!type || !REQ_TYPE.test(type)) return res.status(415).json({ msg: 'Attach the score as a PDF or a picture' });
+  if (!(size > 0)) return res.status(400).json({ msg: 'Empty file' });
+  if (size > REQ_MB * 1048576) return res.status(413).json({ msg: `The score can be up to ${REQ_MB} MB` });
+  const hour = Date.now() - 3600000;
+  const times = (slotsBy.get(req.user.id) || []).filter((t) => t > hour);
+  if (times.length >= 10) return res.status(429).json({ msg: 'Too many uploads this hour. Please try again later.' });
+  slotsBy.set(req.user.id, [...times, Date.now()]);
+  const id = storage.newId(name);
+  if (size <= storage.PART_BYTES) return res.json({ id, type, name, size, url: await storage.putUrl(id, type, size), headers: { 'Content-Type': type } });
+  const count = Math.ceil(size / storage.PART_BYTES);
+  const uploadId = await storage.startParts(id, type);
+  const urls = await Promise.all(Array.from({ length: count }, (_, i) => storage.partUrl(id, uploadId, i + 1)));
+  res.json({ id, type, name, size, uploadId, partSize: storage.PART_BYTES, urls });
+};
+
+// POST /api/library/requests { title, details, neededBy, info: { composer, massPart, season, voicing, language }, upload? }
 exports.request = async (req, res) => {
   if ((req.user.roles || []).includes('alumni')) return res.status(403).json({ msg: 'Old Members can\'t request songs' });
   const title = text(req.body?.title, 200);
   if (title.length < 2) return res.status(400).json({ msg: 'Say which song you need' });
   const details = long(req.body?.details, 600);
   const neededBy = DAY.test(req.body?.neededBy || '') ? req.body.neededBy : '';
-  if (await SongRequest.countDocuments({ by: req.user.id, status: 'open' }) >= OPEN_MAX) return res.status(429).json({ msg: `You already have ${OPEN_MAX} requests waiting. Wait for an answer, or withdraw one.` });
+  if (await SongRequest.countDocuments({ by: req.user.id, status: { $in: LIVE_REQ } }) >= OPEN_MAX) return res.status(429).json({ msg: `You already have ${OPEN_MAX} requests waiting. Wait for an answer, or withdraw one.` });
+  // the song details, checked like the library's own (lists take their official spelling; custom entries are kept)
+  const info = {};
+  for (const [k, field] of Object.entries(REQ_INFO)) {
+    const raw = req.body?.info?.[k];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const c = clean(field, FIELDS[field].t === 'many' ? [raw] : raw);
+    if (c.bad) return res.status(400).json({ msg: `${k}: ${c.bad}` });
+    const v = Array.isArray(c.v) ? c.v[0] : c.v;
+    if (v) info[k] = v;
+  }
+  // the attached score
+  let file = null;
+  if (req.body?.upload) {
+    const up = req.body.upload;
+    if (!storage.ID.test(String(up.id))) return res.status(400).json({ msg: 'The score did not upload — please attach it again' });
+    if (await SongRequest.exists({ 'file.id': up.id }) || await LibraryItem.exists({ 'files.id': up.id })) return res.status(409).json({ msg: 'This score is already attached to another request' });
+    if (up.uploadId) {
+      const parts = (Array.isArray(up.parts) ? up.parts : []).map((p) => ({ n: Number(p?.n), etag: text(p?.etag, 100) })).filter((p) => Number.isInteger(p.n) && p.n >= 1 && p.n <= 3 && p.etag);
+      try { await storage.finishParts(up.id, String(up.uploadId), parts); } catch { /* checked just below */ }
+    }
+    const stored = await storage.head(up.id);
+    if (!stored) return res.status(400).json({ msg: 'The score did not finish uploading — please attach it again' });
+    const name = text(up.name, 200) || up.id;
+    const mime = typeFor(name, stored.type || up.type);
+    if (stored.size > REQ_MB * 1048576 || !mime || !REQ_TYPE.test(mime)) { await storage.remove(up.id).catch(() => {}); return res.status(400).json({ msg: `Attach the score as a PDF or a picture, up to ${REQ_MB} MB` }); }
+    file = { id: up.id, name, mime, size: stored.size, etag: stored.etag };
+  }
   const by = await nameOf(req.user.id);
-  const r = await SongRequest.create({ uid: `req-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`, title, details, neededBy, by: req.user.id, byName: by });
+  const matches = await titleMatches(title);
+  const r = await SongRequest.create({ uid: `req-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`, title, details, neededBy, info, ...(file ? { file } : {}), matches, by: req.user.id, byName: by });
   const keepers = (await requestKeepers()).filter((id) => id !== req.user.id);
-  tell(keepers, `🎶 Song request from ${by}: "${title}"${neededBy ? ` (needed by ${neededBy})` : ''}${details ? `\n${details}` : ''}\nAnswer it in Music & Files → Requests.`, `lib-req-${r.uid}`).catch(() => {});
-  audit(req, 'Requested a song', title);
+  const extra = [info.composer, info.massPart, info.season, info.voicing].filter(Boolean).join(' · ');
+  tell(keepers, `🎶 Song request from ${by}: "${title}"${neededBy ? ` (needed by ${neededBy})` : ''}${file ? ' — with the score attached' : ''}${extra ? `\n${extra}` : ''}${details ? `\n${details}` : ''}\nAnswer it in Music & Files → Requests.`, `lib-req-${r.uid}`).catch(() => {});
+  audit(req, 'Requested a song', `${title}${file ? ' (score attached)' : ''}`);
   res.status(201).json({ request: requestView(r.toObject(), req.user.id) });
+};
+
+// POST /api/library/requests/:id/add — the music team turns a request with a score into an Upload queue item,
+// filled in with what the member gave. It then goes through details and approval like any other music.
+exports.addRequest = async (req, res) => {
+  if (!(await staff(req))) return deny(res);
+  const r = await SongRequest.findOne({ uid: req.params.id });
+  if (!r) return res.status(404).json({ msg: 'This request is no longer there' });
+  if (r.status !== 'open') return res.status(409).json({ msg: r.status === 'adding' ? `It is already in the Upload queue as ${r.itemRef}` : 'This request has already been answered' });
+  if (!r.file?.id) return res.status(400).json({ msg: 'This request has no score attached. Upload it through the Upload queue.' });
+  const stored = await storage.head(r.file.id);
+  if (!stored) return res.status(410).json({ msg: 'The attached score is no longer in storage' });
+  const byName = await nameOf(req.user.id);
+  const now = new Date();
+  const file = { fid: `f-${crypto.randomBytes(5).toString('hex')}`, id: r.file.id, name: r.file.name, mime: r.file.mime, size: stored.size, etag: stored.etag, part: guessPart(r.file.name), version: 1, by: r.by, byName: r.byName, at: r.createdAt };
+  file.kind = KINDS_BY_TYPE(file.mime, file.name, file.part);
+  const d = { title: r.title, type: 'song' };
+  const i = r.info || {};
+  if (i.composer) d.composer = i.composer;
+  if (i.massPart) d.massParts = [i.massPart];
+  if (i.season) d.seasons = [i.season];
+  if (i.voicing) d.voicing = i.voicing;
+  if (i.language) d.languages = [i.language];
+  d.notes = `Requested by ${r.byName}${r.details ? `: ${r.details}` : ''}`.slice(0, 2000);
+  const meta = Object.fromEntries(Object.keys(d).map((k) => [k, { r: 1, by: req.user.id, byName, at: now }]));
+  const dup = await findDup(file);
+  const qno = await nextNumber('libq');
+  let doc = (await LibraryItem.create({
+    uid: `lib-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`, qno, d, meta, files: [file],
+    fromRequest: r.uid, requestByName: r.byName,
+    ...(dup ? { dupOf: dup.uid, dupRef: refOf(dup.qno) } : {}),
+    createdBy: req.user.id, createdByName: byName, rev: 1,
+    history: [{ at: now, by: req.user.id, byName, ev: 'Added from a song request', detail: `${r.title} (asked by ${r.byName})` }],
+  })).toObject();
+  doc = await settle(doc);
+  invalidate();
+  Object.assign(r, { status: 'adding', item: doc.uid, itemRef: refOf(doc.qno), doneBy: req.user.id, doneByName: byName, doneAt: now });
+  await r.save();
+  if (r.by !== req.user.id) tell([r.by], `🎼 Your song request "${r.title}" is being added to the library by ${byName}. You'll be told when it is published.`, `lib-req-${r.uid}`).catch(() => {});
+  audit(req, 'Added a requested song to the Upload queue', `${refOf(doc.qno)} ${r.title}`);
+  res.json({ request: requestView(r.toObject(), req.user.id), item: view(doc, req.user.id) });
 };
 
 // PATCH /api/library/requests/:id { status: found|declined|open|withdrawn, reply, song } — the music team answers; the asker can withdraw
@@ -1028,7 +1155,7 @@ exports.answerRequest = async (req, res) => {
   const team = await staff(req);
   if (status === 'withdrawn') {
     if (r.by !== req.user.id) return res.status(403).json({ msg: 'Only the person who asked can withdraw a request' });
-    if (r.status !== 'open') return res.status(409).json({ msg: 'This request has already been answered' });
+    if (r.status !== 'open') return res.status(409).json({ msg: r.status === 'adding' ? 'It is already being added to the library' : 'This request has already been answered' });
   } else {
     if (!team) return deny(res);
     if (!['found', 'declined', 'open'].includes(status)) return res.status(400).json({ msg: 'Choose found, declined or reopen' });
@@ -1041,6 +1168,7 @@ exports.answerRequest = async (req, res) => {
   }
   const who = await nameOf(req.user.id);
   Object.assign(r, { status, reply: status === 'open' ? '' : long(req.body?.reply, 400), song, doneBy: req.user.id, doneByName: who, doneAt: new Date() });
+  if (status === 'open') { r.item = undefined; r.itemRef = undefined; }
   await r.save();
   if (status === 'found' || status === 'declined') {
     const msg = status === 'found'

@@ -145,6 +145,7 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
         </div>
       )}
 
+      {item.request && <div className="lib-banner info">From a song request by <b>{item.request.byName}</b>. They are told when it is published.</div>}
       {item.status === 'awaiting' && <div className="lib-banner info">Waiting for approval since {new Date(item.sent?.at || item.updatedAt).toLocaleString()} (sent by {item.sent?.byName}). The details are locked while the approvers look.</div>}
       {item.status === 'sent' && item.sentBack && <div className="lib-banner">Sent back by <b>{item.sentBack.byName}</b>: “{item.sentBack.reason}”. Make the change, then send it again.</div>}
       {item.urgent && item.live && <div className="lib-banner warn">Published urgently by {item.urgent.byName} ({item.urgent.reason}). Members can use it now, marked “not yet reviewed”. Fill in the details and send it for approval to give it its number.</div>}

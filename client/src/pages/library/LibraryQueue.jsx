@@ -10,7 +10,7 @@ import { ACCEPT, createItem, listItems, loadLists, problem, settleDuplicate, upl
 const FILTERS = [['all', 'All'], ['needs', 'Needs details'], ['ready', 'Ready to send'], ['sent', 'Sent back'], ['urgent', 'Urgent'], ['awaiting', 'Awaiting approval'], ['mine', 'Claimed by me'], ['existing', 'Existing songs'], ['duplicates', 'Duplicates']];
 const STATUS = { needs: ['Needs details', 'lib-st-needs'], ready: ['Ready to send', 'lib-st-ready'], awaiting: ['Awaiting approval', 'lib-st-await'], sent: ['Sent back', 'lib-st-sent'], urgent: ['Urgent · not yet reviewed', 'lib-st-urgent'] };
 
-export default function LibraryQueue({ ctx, perms = {} }) {
+export default function LibraryQueue({ ctx, perms = {}, openFirst = null }) {
   const { toast, me } = ctx;
   const [lists, setLists] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -19,7 +19,7 @@ export default function LibraryQueue({ ctx, perms = {} }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(openFirst);
   const [uploads, setUploads] = useState([]);
   const [link, setLink] = useState('');
   const [drag, setDrag] = useState(false);
@@ -114,7 +114,7 @@ export default function LibraryQueue({ ctx, perms = {} }) {
                 <button type="button" className="lib-row-main" onClick={() => setOpen(it.uid)}>
                   <Thumb uid={it.uid} has={it.preview} scope="items" draw={it.draw} canDraw alt={`First page of ${it.title}`} />
                   <span className="lib-q">{it.ref}</span>
-                  <span className="lib-row-t"><b>{it.title || 'Untitled'}</b><span className="muted tiny">{it.existing ? 'Existing song · ' : ''}{it.files} file{it.files === 1 ? '' : 's'}{it.recording ? ' · recording' : ' · no recording yet'}</span></span>
+                  <span className="lib-row-t"><b>{it.title || 'Untitled'}</b><span className="muted tiny">{it.request ? `Requested by ${it.request} · ` : ''}{it.existing ? 'Existing song · ' : ''}{it.files} file{it.files === 1 ? '' : 's'}{it.recording ? ' · recording' : ' · no recording yet'}</span></span>
                   <span className="lib-row-s"><span className={`lib-pill ${STATUS[it.status]?.[1] || ''}`}>{STATUS[it.status]?.[0] || it.status}</span><span className="lib-bar"><i style={{ width: `${(100 * it.done) / it.total}%` }} /></span><span className="tiny">{it.done}/{it.total}</span></span>
                   <span className="lib-row-w tiny">{it.editing.length ? <><b>{it.editing.map((n) => n.split(' ')[0]).join(', ')}</b><br /><span className="muted">editing now</span></> : it.claim?.active ? <>{it.claim.mine ? 'You' : it.claim.name.split(' ')[0]}<br /><span className="muted">claimed</span></> : <span className="muted">Unclaimed</span>}</span>
                 </button>

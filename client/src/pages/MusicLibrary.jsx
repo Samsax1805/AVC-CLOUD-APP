@@ -47,6 +47,7 @@ export default function MusicLibrary({ ctx }) {
   const wanted = ['approvals', 'requests'].find((t) => String(ctx.musicTab || '').startsWith(t)) || 'queue';
   const [tab, setTab] = useState(ctx.musicTab ? wanted : 'library');
   useEffect(() => { if (ctx.musicTab && canQueue) setTab(wanted); }, [ctx.musicTab, canQueue]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [openItem, setOpenItem] = useState(null); // a queue item to open (from Requests)
   const [songsFailed, setSongsFailed] = useState(false);
   useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Scores uploaded while page pictures were failing (22–27 Nov) have none: the officer's browser draws and saves them, one at a time
@@ -139,10 +140,10 @@ export default function MusicLibrary({ ctx }) {
       <button type="button" role="tab" aria-selected={tab === 'library'} className={`tab ${tab === 'library' ? 'on' : ''}`} onClick={() => setTab('library')}>Library</button>
       <button type="button" role="tab" aria-selected={tab === 'queue'} className={`tab ${tab === 'queue' ? 'on' : ''}`} onClick={() => setTab('queue')}>Upload queue</button>
       <button type="button" role="tab" aria-selected={tab === 'requests'} className={`tab ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>Requests</button>
-      {lib.approve && <button type="button" role="tab" aria-selected={tab === 'approvals'} className={`tab ${tab === 'approvals' ? 'on' : ''}`} onClick={() => setTab('approvals')}>Approvals</button>}
+      {(lib.approve || lib.approveRequests) && <button type="button" role="tab" aria-selected={tab === 'approvals'} className={`tab ${tab === 'approvals' ? 'on' : ''}`} onClick={() => setTab('approvals')}>Approvals</button>}
     </div>
   );
-  if (canQueue && lib.approve && tab === 'approvals') {
+  if (canQueue && (lib.approve || lib.approveRequests) && tab === 'approvals') {
     return (
       <div className="stack">
         <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Approving issues the permanent CHR or INS number and seals exactly what was approved.</p></div></div>
@@ -154,9 +155,9 @@ export default function MusicLibrary({ ctx }) {
   if (canQueue && tab === 'requests') {
     return (
       <div className="stack">
-        <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Songs members have asked for. Mark each one when it is in the library, and they are told in Messages.</p></div></div>
+        <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Songs members have asked for, some with the score attached. Add them to the library, or answer them; members are told in Messages.</p></div></div>
         {tabs}
-        <Suspense fallback={<p className="muted small">Opening requests…</p>}><SongRequests toast={toast} /></Suspense>
+        <Suspense fallback={<p className="muted small">Opening requests…</p>}><SongRequests toast={toast} onOpenItem={(uid) => { setOpenItem(uid); setTab('queue'); }} /></Suspense>
       </div>
     );
   }
@@ -165,7 +166,7 @@ export default function MusicLibrary({ ctx }) {
       <div className="stack">
         <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Upload copies first: each is saved at once with a Q number and waits here until its details are filled in.</p></div></div>
         {tabs}
-        <Suspense fallback={<p className="muted small">Opening the queue…</p>}><LibraryQueue ctx={ctx} perms={lib} /></Suspense>
+        <Suspense fallback={<p className="muted small">Opening the queue…</p>}><LibraryQueue ctx={ctx} perms={lib} openFirst={openItem} /></Suspense>
       </div>
     );
   }

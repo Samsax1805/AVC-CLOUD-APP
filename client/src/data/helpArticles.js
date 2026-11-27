@@ -178,8 +178,10 @@ export const HELP_ARTICLES = [
     tags: 'request song missing ask custodian find',
     steps: [
       'In Music & Files press Request a song (in the Catalogue).',
-      'Say which song, add anything that helps (a version, a recording link) and, if you need it soon, the date.',
-      'The Custodian is told straight away. When it is in the library, or can\'t be found, you get a message, and Request a song shows the answer.',
+      'Type the song\'s title. If something similar is already in the library, it is shown so you can open it instead.',
+      'Attach the score if you have it (a PDF or a picture), and open Song details to add the composer, part of Mass, season, voicing and language.',
+      'Add anything else that helps and, if you need it soon, the date. Then press Send request.',
+      'The Custodian is told straight away. If they add it to the library, you are told when it is approved and published; Request a song shows where it is.',
     ],
     tips: ['You can have up to 5 requests waiting. Withdraw one you no longer need.'],
     go: { page: 'music', label: 'Open Music & Files' },
@@ -191,9 +193,11 @@ export const HELP_ARTICLES = [
     steps: [
       'You get a message when a member requests a song. Open Music & Files → Requests.',
       'Add the song through the Upload queue as usual.',
-      'Press In the library, pick the song from the catalogue (optional) and add a note. Or press Not possible and say why.',
-      'The member is told in Messages. Reopen an answered request if needed.',
+      'Score attached? Press View to check it, then Add to library: it goes into the Upload queue as a Q number, already filled in with what the member gave.',
+      'Complete the details, send it for approval, and approve it. The Custodian can approve songs that came from a request. The member is told when it is published.',
+      'Already in the library? Press Already in the library and pick the song. Can\'t be done? Press Not possible and say why.',
     ],
+    tips: ['A ⚠ note shows when a song with a similar title is already in the library.'],
     go: { page: 'music', musicTab: 'requests', label: 'Open Requests' },
   },
   {
@@ -222,7 +226,7 @@ export const HELP_ARTICLES = [
     go: { page: 'music', musicTab: 'queue', label: 'Open the Upload queue' },
   },
   {
-    id: 'approve', group: 'music', who: ['choirmaster', 'asstchoirmaster', 'president', 'admin'], title: 'Approving music',
+    id: 'approve', group: 'music', who: ['choirmaster', 'asstchoirmaster', 'president', 'admin', 'custodian'], title: 'Approving music',
     summary: 'Approve, send back or publish music; urgent publishing; Music Approvers.',
     tags: 'approve approval send back publish urgent chr ins number seal music approvers choir master assistant',
     steps: [
@@ -233,6 +237,7 @@ export const HELP_ARTICLES = [
     ],
     tips: [
       'Anyone given the Choir Master or Assistant Choir Master role approves music automatically. They can also bring other members on board as Music Approvers. The President and admin are the back-up.',
+      'The Custodian can also approve songs that came from a member\'s song request.',
       'Each approval is sealed to the exact files approved, and approving music you sent yourself is recorded as "self-approved".',
     ],
     go: { page: 'music', musicTab: 'approvals', label: 'Open Approvals' },

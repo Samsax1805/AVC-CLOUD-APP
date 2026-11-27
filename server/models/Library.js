@@ -43,6 +43,8 @@ const LibraryItem = mongoose.model('LibraryItem', new mongoose.Schema({
   sentBack: { reason: String, byName: String, at: Date },
   publishAt: Date, publishedAt: Date, notifyOnPublish: Boolean, approvingAt: Date,
   existing: Boolean, // a song from before the catalogue (stage C)
+  fromRequest: String, // the song request it came from (its Custodian may approve it too)
+  requestByName: String,
   legacySongId: String,
   d: { type: mongoose.Schema.Types.Mixed, default: {} }, // the details (see controllers/library.controller.js FIELDS)
   meta: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -89,6 +91,10 @@ const SongRequest = mongoose.model('SongRequest', new mongoose.Schema({
   status: { type: String, default: 'open', index: true }, // open · found · declined · withdrawn
   reply: String, doneBy: String, doneByName: String, doneAt: Date,
   song: String, // the catalogue song (uid) that answers it
+  info: { type: mongoose.Schema.Types.Mixed, default: {} }, // song details the member gave (composer, Mass part, season, voicing, language)
+  file: { id: String, name: String, mime: String, size: Number, etag: String }, // the score they attached, if any
+  matches: [{ _id: false, uid: String, code: String, title: String }], // songs already in the library with a similar title
+  item: String, itemRef: String, // the queue item made from it ("Add to library")
 }, { timestamps: true }).index({ by: 1, status: 1 }));
 
 const nextNumber = async (name) => (await Counter.findOneAndUpdate({ _id: name }, { $inc: { seq: 1 } }, { upsert: true, new: true })).seq;
