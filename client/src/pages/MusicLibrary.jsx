@@ -42,7 +42,8 @@ export default function MusicLibrary({ ctx }) {
   const [lib, setLib] = useState({ staff: PERMS.libraryQueue(me), approve: false, manageApprovers: false });
   useEffect(() => { api.get('/library/me').then(({ data }) => setLib(data)).catch(() => {}); }, []);
   const canQueue = lib.staff;
-  const [tab, setTab] = useState('library');
+  const [tab, setTab] = useState(ctx.musicTab ? 'queue' : 'library');
+  useEffect(() => { if (ctx.musicTab && canQueue) setTab('queue'); }, [ctx.musicTab, canQueue]);
   const [songsFailed, setSongsFailed] = useState(false);
   useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Scores uploaded while page pictures were failing (22–27 Nov) have none: the officer's browser draws and saves them, one at a time
@@ -72,7 +73,6 @@ export default function MusicLibrary({ ctx }) {
 
   const [file, setFile] = useState(null); // { file, preview, secs }
   const [busy, setBusy] = useState(false);
-  const openNew = () => { setFile(null); setForm({ title: '', part: ALL_PARTS, categories: [], format: 'MP3', fileName: '' }); setModal({ mode: 'new' }); };
   const pick = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -160,10 +160,11 @@ export default function MusicLibrary({ ctx }) {
   return (
     <div className="stack">
       <div className="page-head">
-        <div><h2>Music Library</h2><p className="muted small">{canEdit ? 'Upload, edit and manage song files for all choristers.' : 'You have read-only access — enjoy the music! 🎶'}</p></div>
+        <div><h2>Music Library</h2><p className="muted small">{canQueue ? 'New music goes through the Upload queue: details, then approval, then it appears here.' : canEdit ? 'Edit and manage the songs already in the library.' : 'You have read-only access — enjoy the music! 🎶'}</p></div>
         <div className="head-actions">
           {!canEdit && <span className="chip"><Icon name="eye" size={13} /> Read-only</span>}
-          {canEdit && <button className="btn btn-pri" onClick={openNew}><Icon name="upload" size={15} /> Upload song</button>}
+          {/* one way to add music: the Upload queue */}
+          {canQueue && <button className="btn btn-pri" onClick={() => setTab('queue')}><Icon name="upload" size={15} /> Upload music</button>}
         </div>
       </div>
       {tabs}
@@ -206,7 +207,7 @@ export default function MusicLibrary({ ctx }) {
       <Pagination paged={paged} label="songs" />
       {songsFailed && !songs.length && <p className="muted small">The songs could not be loaded. Check your connection and open the page again.</p>}
       {!list.length && <EmptyState icon="music" text="No songs match your search." />}
-      <Modal open={!!modal} onClose={() => setModal(null)} title={modal?.mode === 'new' ? 'Upload a song' : 'Edit song'}>
+      <Modal open={!!modal} onClose={() => setModal(null)} title="Edit song">
         <div className="field"><label className="label">Song title</label><input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Hallelujah Anthem" /></div>
         <div className="field">
           <label className="label">Voice parts <span className="muted">— {partsLabel(formParts)}</span></label>
@@ -234,16 +235,6 @@ export default function MusicLibrary({ ctx }) {
             ))}
           </div>
         </div>
-        {modal?.mode === 'new' && (
-          <label className="upload-drop">
-            {file?.preview ? <img className="upload-preview" src={file.preview} alt="First page preview" /> : <Icon name="upload" size={22} />}
-            <div style={{ minWidth: 0 }}>
-              <b className="small">{busy && !file ? 'Reading file…' : form.fileName || 'Click to choose a file'}</b>
-              <div className="muted tiny">{file ? (file.preview ? 'Preview of the first page' : `${form.format}${file.secs ? ` · ${Math.round(file.secs)}s` : ''} — no page preview for this type`) : `Audio, PDF score, image or video · up to ${MAX_UPLOAD_MB} MB`}</div>
-            </div>
-            <input type="file" hidden accept={ACCEPT} onChange={pick} />
-          </label>
-        )}
         <div className="modal-foot"><button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button><button className="btn btn-pri" disabled={busy} onClick={save}>{busy && file ? 'Uploading…' : modal?.mode === 'new' ? 'Upload' : 'Save changes'}</button></div>
       </Modal>
     </div>

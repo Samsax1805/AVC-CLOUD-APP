@@ -110,8 +110,13 @@ function ApproversCard({ perms, users, toast }) {
   return (
     <div className="card">
       <div className="lib-side-h">Music Approvers</div>
+      <p className="muted tiny" style={{ margin: '4px 0 0' }}>Anyone given the Choir Master or Assistant Choir Master role in Members &amp; Roles approves music automatically. The President and admin are the back-up.</p>
       <div className="lib-rows" style={{ marginTop: 10 }}>
-        {a.byRole.map((p) => <div key={p.id} className="lib-row"><div className="lib-appr two"><span className="lib-row-t"><b>{p.name}</b></span><span className="muted tiny">{p.role} · by role</span></div></div>)}
+        {/* the two music roles always show, even before anyone holds them */}
+        {['Choir Master', 'Assistant Choir Master'].filter((r) => !a.byRole.some((p) => p.role.split(', ').includes(r))).map((r) => (
+          <div key={r} className="lib-row"><div className="lib-appr two"><span className="lib-row-t"><b className="muted">{r}: nobody yet</b><span className="muted tiny">Grant this role in Members &amp; Roles and that person can approve music straight away</span></span><span className="muted tiny">by role</span></div></div>
+        ))}
+        {a.byRole.map((p) => <div key={p.id} className="lib-row"><div className="lib-appr two"><span className="lib-row-t"><b>{p.name}</b></span><span className="muted tiny">{p.role}{/President|Admin/.test(p.role) && !/Choir Master/.test(p.role) ? ' · back-up' : ''} · by role</span></div></div>)}
         {a.added.map((p) => (
           <div key={p.id} className="lib-row"><div className="lib-appr two">
             <span className="lib-row-t"><b>{p.name}</b><span className="muted tiny">brought on board by {p.byName} · {new Date(p.at).toLocaleDateString()}</span></span>

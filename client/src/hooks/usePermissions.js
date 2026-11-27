@@ -5,8 +5,8 @@ export const ROLES = {
   finance: { label: 'Finance Secretary', color: '#0f766e', bg: '#ccfbf1', desc: 'Keeps the choir accounts. Prepares each month\'s financial report for the Secretary to review and publish.' },
   provost: { label: 'Provost', color: '#047857', bg: '#d1fae5', desc: 'Attendance, absence/lateness debts, probation.' },
   pro: { label: 'PRO', color: '#a16207', bg: '#fef9c3', desc: 'Public Relations Officer. Adds new members and sets the part each member sings.' },
-  choirmaster: { label: 'Choir Master', color: '#9d174d', bg: '#fce7f3', desc: 'Leads the music. Plans the responsorial psalmist roster and publishes it.' },
-  asstchoirmaster: { label: 'Assistant Choir Master', color: '#be185d', bg: '#fdf2f8', desc: 'Supports the Choir Master. Plans and publishes the psalmist roster.' },
+  choirmaster: { label: 'Choir Master', color: '#9d174d', bg: '#fce7f3', desc: 'Leads the music. Approves music for the library and plans and publishes the psalmist roster.' },
+  asstchoirmaster: { label: 'Assistant Choir Master', color: '#be185d', bg: '#fdf2f8', desc: 'Supports the Choir Master. Approves music for the library and plans and publishes the psalmist roster.' },
   custodian: { label: 'Custodian', color: '#be123c', bg: '#ffe4e6', desc: 'Songs, audio & music files.' },
   electoral: { label: 'Electoral Committee', color: '#4338ca', bg: '#e0e7ff', desc: 'Nominations, polls and live election results.' },
   member: { label: 'Member', color: '#475569', bg: '#f1f5f9', desc: 'Chorister. Votes when elections are live.' },
@@ -80,8 +80,8 @@ export const NAV_DEFS = [
   { id: 'elections', label: 'Elections', icon: 'vote', sec: 'Governance' },
   { id: 'audit', label: 'Audit Log', icon: 'shield', sec: 'Governance' },
   { id: 'members', label: 'Members & Roles', icon: 'users', sec: 'Governance' },
-  { id: 'account', label: 'My Account', icon: 'note', sec: 'Account' },
-  { id: 'profile', label: 'Settings', icon: 'user', sec: 'Account' },
+  // My Account and Settings are one page: Overview, Profile, Notifications and Security tabs
+  { id: 'profile', label: 'My Account', icon: 'user', sec: 'Account' },
 ];
 export const visibleNav = (me) => NAV_DEFS.filter((n) => {
   if (n.id === 'receipts') return PERMS.manageReceipts(me);
@@ -90,6 +90,5 @@ export const visibleNav = (me) => NAV_DEFS.filter((n) => {
   if (n.id === 'members') return PERMS.manageMembers(me) || PERMS.approveMembers(me) || PERMS.addMembers(me);
   if (n.id === 'probation') return PERMS.manageProbation(me);
   if (n.id === 'finance') return !isAlumni(me);
-  if (n.id === 'account') return !me.system; // the system admin account is not a member
   return true;
 });

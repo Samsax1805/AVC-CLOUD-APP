@@ -10,7 +10,6 @@ import Dashboard from '../pages/Dashboard';
 // Pages load the first time they are opened, so the site starts faster (the Dashboard comes with it)
 const MusicLibrary = lazy(() => import('../pages/MusicLibrary'));
 const CalendarPage = lazy(() => import('../pages/Calendar'));
-const MyAccountPage = lazy(() => import('../pages/MyAccount'));
 const MinutesPage = lazy(() => import('../pages/Minutes'));
 const VoicePage = lazy(() => import('../pages/VoiceNotes'));
 const ReceiptsPage = lazy(() => import('../pages/Receipts'));
@@ -40,6 +39,7 @@ export default function AppShell() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [settingsTab, setSettingsTab] = useState('profile');
+  const [musicTab, setMusicTab] = useState(''); // "New Upload" opens Music & Files on its Upload queue
 
   const me = data.me || null;
   const notifs = data.notifs || [];
@@ -54,7 +54,7 @@ export default function AppShell() {
     );
   }
 
-  const ctx = { ...data, me, setPage, settingsTab };
+  const ctx = { ...data, me, setPage, settingsTab, musicTab };
   const nav = (typeof visibleNav === 'function' ? visibleNav(me) : NAV_DEFS) || [];
   const es = data.electionStatus;
   const electionBadge = es?.stage === 'live' ? 'LIVE' : es?.stage === 'nominations' ? 'Open' : es?.stage === 'published' ? 'New' : null;
@@ -66,7 +66,8 @@ export default function AppShell() {
   const renderPage = () => {
     switch (page) {
       case 'calendar': return <CalendarPage ctx={ctx} />;
-      case 'account': return me.system ? <Dashboard ctx={ctx} /> : <MyAccountPage ctx={ctx} />;
+      // "My Account" links from elsewhere open the merged page on its Overview tab
+      case 'account': return <ProfilePage ctx={{ ...ctx, settingsTab: me.system ? 'profile' : 'overview' }} />;
       case 'music': return <MusicLibrary ctx={ctx} />;
       case 'minutes': return <MinutesPage ctx={ctx} />;
       case 'voice': return <VoicePage ctx={ctx} />;
@@ -101,7 +102,7 @@ export default function AppShell() {
             <div key={sec}>
               <div className="nav-sec">{sec}</div>
               {nav.filter((n) => n.sec === sec).map((n) => (
-                <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => { setSettingsTab('profile'); setPage(n.id); setSideOpen(false); }}>
+                <button key={n.id} className={`nav-item ${page === n.id || (n.id === 'profile' && page === 'account') ? 'active' : ''}`} onClick={() => { setSettingsTab(n.id === 'profile' ? 'overview' : 'profile'); setPage(n.id); setSideOpen(false); }}>
                   <Icon name={n.icon} size={16} />
                   <span>{n.id === 'debts' ? (PERMS.manageDebts(me) ? 'Debt Tracker' : 'My Debts') : n.label}</span>
                   {n.id === 'finance' && data.financeStatus?.waiting > 0 && <span className="nav-live" title="Months waiting for you">{data.financeStatus.waiting}</span>}
@@ -123,8 +124,11 @@ export default function AppShell() {
             <span className="dm-l"><Icon name="moon" size={15} /> Dark Mode</span>
             <button className={`toggle ${dark ? 'on' : ''}`} onClick={() => setDark((d) => !d)}><span /></button>
           </div>
-          <div className="nav-sec">Admin Portal</div>
-          <button className="btn btn-pri full-sm" onClick={() => { setPage('music'); setSideOpen(false); }}><Icon name="plus" size={14} /> New Upload</button>
+          {PERMS.libraryQueue(me) && <>
+            <div className="nav-sec">Admin Portal</div>
+            {/* the one way to add music: the Upload queue (details, then approval) */}
+            <button className="btn btn-pri full-sm" onClick={() => { setMusicTab(`queue-${Date.now()}`); setPage('music'); setSideOpen(false); }}><Icon name="plus" size={14} /> New Upload</button>
+          </>}
         </nav>
         <div className="side-user">
           <button className="side-user-btn" onClick={() => setPage('profile')} title="Open my profile">

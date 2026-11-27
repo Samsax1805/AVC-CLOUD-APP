@@ -8,6 +8,7 @@ import Avatar from '../components/ui/Avatar';
 import Icon from '../components/ui/Icon';
 import RoleChip from '../components/ui/RoleChip';
 import { rolesOf } from '../hooks/usePermissions';
+import MyAccount from './MyAccount';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 
@@ -30,7 +31,7 @@ export default function ProfilePage({ ctx }) {
   });
   
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState(ctx?.settingsTab || 'profile');
+  const [tab, setTab] = useState(ctx?.settingsTab || (me?.system ? 'profile' : 'overview'));
   // The sidebar's Security button opens the Security tab even when Settings is already open
   useEffect(() => { if (ctx?.settingsTab) setTab(ctx.settingsTab); }, [ctx?.settingsTab]);
   const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -119,14 +120,18 @@ export default function ProfilePage({ ctx }) {
     );
   }
 
-  const tabs = [['profile', 'Profile'], ['notifications', 'Notifications'], ['security', 'Security']];
+  // My Account and Settings in one place. The system admin account is not a member, so it has no Overview.
+  // (an @avcsb.com address is a system account, the same rule as the server: known at once, before the member list loads)
+  const system = !!currentUser.system || /@avcsb\.com$/i.test(currentUser.email || '');
+  const tabs = [...(system ? [] : [['overview', 'Overview']]), ['profile', 'Profile'], ['notifications', 'Notifications'], ['security', 'Security']];
+  const shown = tab === 'overview' && system ? 'profile' : tab;
   return (
     <div className="stack settings">
-      <div className="page-head"><div><h2>Settings</h2><p className="muted small">Your profile and how you sign in.</p></div></div>
+      <div className="page-head"><div><h2>My Account</h2><p className="muted small">Your attendance, dues and duties, your details, and how you sign in.</p></div></div>
       <div className="tab-row" role="tablist">
-        {tabs.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>)}
+        {tabs.map(([id, label]) => <button key={id} role="tab" aria-selected={shown === id} className={`tab ${shown === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>)}
       </div>
-      {tab === 'profile' ? (<>
+      {shown === 'overview' ? <MyAccount ctx={{ ...ctx, setPage: (p) => (p === 'profile' ? setTab('profile') : ctx.setPage(p)) }} /> : shown === 'profile' ? (<>
         <div className="card settings-id">
           <Avatar user={currentUser} size={60} />
           <div style={{ minWidth: 0 }}>
@@ -139,7 +144,7 @@ export default function ProfilePage({ ctx }) {
           <div className="card-h"><h3>Personal details</h3></div>
           {formBody}
         </div>
-      </>) : tab === 'notifications' ? <PushSettings toast={toast} /> : <AccountSecurity toast={toast} />}
+      </>) : shown === 'notifications' ? <PushSettings toast={toast} /> : <AccountSecurity toast={toast} />}
     </div>
   );
 }
