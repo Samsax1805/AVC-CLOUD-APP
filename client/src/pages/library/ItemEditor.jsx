@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../components/ui/Icon';
 import useAutosave from '../../hooks/useAutosave';
-import { openFile } from '../../services/files';
+import { openFile, makePreview } from '../../services/files';
+import { rememberPicture, savePicture } from './Thumb';
 import {
   ACCEPT, addFileTo, changeFile, claimItem, getItem, problem, removeFile, removeItem, sendItem, sendPresence, settleDuplicate, sizeLabel, uploadToLibrary, urgentItem,
 } from '../../services/library';
@@ -34,9 +35,11 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
   const [urgent, setUrgent] = useState(null); // reason being typed
   const focus = useRef('');
 
-  const fresh = (it) => { setItem(it); setProgress({ done: it.done, total: it.total, missing: it.missing, status: it.status }); };
+  // Progress comes with the item's change counter (rev): an older answer arriving after a newer one is ignored
+  const lastRev = useRef(0);
+  const fresh = (it) => { lastRev.current = Math.max(lastRev.current, it.rev || 0); setItem(it); setProgress({ done: it.done, total: it.total, missing: it.missing, status: it.status }); };
   useEffect(() => { getItem(uid).then(fresh).catch((e) => setFailed(problem(e, 'This item could not be opened'))); }, [uid]);
-  const { values, set, conflicts, resolve, errors, state } = useAutosave(item, (r) => { setProgress({ done: r.done, total: r.total, missing: r.missing, status: r.status }); onChanged?.(); });
+  const { values, set, conflicts, resolve, errors, state } = useAutosave(item, (r) => { if ((r.rev || 0) >= lastRev.current) { lastRev.current = r.rev || 0; setProgress({ done: r.done, total: r.total, missing: r.missing, status: r.status }); } onChanged?.(); });
 
   // Who else has it open, every 15 seconds and whenever I move to another field
   const ping = useRef(() => {});
@@ -90,7 +93,14 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
       setUploads((u) => [...u, { key, name: file.name, sent: 0, total: file.size, phase: 'uploading' }]);
       try {
         const up = await uploadToLibrary(file, { onState: (s) => upd({ ...(s.sent !== undefined ? { sent: s.sent } : {}), phase: s.phase }) });
-        fresh(await addFileTo(uid, { upload: up }, { onWait: (p) => upd({ phase: p }) }));
+        const it = await addFileTo(uid, { upload: up }, { onWait: (p) => upd({ phase: p }) });
+        fresh(it);
+        // no picture yet and this is a score or picture: draw its first page
+        if (!it.preview && /^(application\/pdf|image\/)/.test(file.type)) {
+          const added = [...it.files].reverse().find((f) => f.name === file.name && f.id);
+          const pic = added && await makePreview(file);
+          if (pic) await savePicture(uid, added.fid, pic).then(() => rememberPicture(uid, pic)).catch(() => {});
+        }
         setUploads((u) => u.filter((y) => y.key !== key));
         onChanged?.();
       } catch (e) { upd({ phase: 'failed', msg: problem(e) }); }

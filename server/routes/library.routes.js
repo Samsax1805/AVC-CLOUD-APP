@@ -14,6 +14,7 @@ r.get('/next', auth, safe(c.nextCode));
 r.get('/held', auth, safe(c.held));
 r.get('/catalogue', auth, safe(c.catalogue));
 r.get('/catalogue/:uid', auth, safe(c.song));
+r.get('/catalogue/:uid/preview', auth, safe(c.songPreview));
 r.post('/uploads', auth, safe(c.uploadSlot));
 r.post('/uploads/parts', auth, safe(c.partLinks));
 r.post('/uploads/abort', auth, safe(c.abortUpload));
@@ -33,5 +34,7 @@ r.post('/items/:uid/sendback', auth, safe(c.sendBack));
 r.post('/items/:uid/approve', auth, safe(c.approve));
 r.post('/items/:uid/publish', auth, safe(c.publish));
 r.post('/items/:uid/urgent', auth, safe(c.urgent));
+r.get('/items/:uid/preview', auth, safe(c.itemPreview));
+r.post('/items/:uid/preview', auth, safe(c.savePreview));
 
 module.exports = r;

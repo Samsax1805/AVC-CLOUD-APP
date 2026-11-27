@@ -1202,3 +1202,11 @@ i.bday{background:#ec4899;border-radius:2px}
 .lib-appr.two{grid-template-columns:1fr auto}
 /* the chosen option stands out (small chips are pale by default) */
 .lib-queue .chip.sm.on,.lib-cat .chip.sm.on,.lib-act .chip.sm.on{background:var(--navy);color:#fff}
+
+/* ---------- Music Library: first-page pictures ---------- */
+.lib-thumb{display:flex;align-items:center;justify-content:center;width:44px;height:56px;border-radius:6px;overflow:hidden;background:#f3ecdc;color:#c8b48a;flex-shrink:0;border:1px solid var(--line)}
+.lib-thumb.has{background:#fff}
+.lib-thumb img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
+.lib-card .lib-thumb.card-top{width:calc(100% + 28px);height:160px;margin:-12px -14px 8px;border:none;border-bottom:1px solid var(--line);border-radius:10px 10px 0 0}
+.lib-row-main{grid-template-columns:44px 64px 1fr 150px 92px}
+@media(max-width:920px){.lib-row-main{grid-template-columns:44px 56px 1fr}.lib-row-s,.lib-row-w{grid-column:3}.lib-dup{padding-left:126px}}

@@ -52,6 +52,7 @@ const LibraryItem = mongoose.model('LibraryItem', new mongoose.Schema({
   search: String, // lower-case words for the queue's search box
   files: [FileSchema],
   binned: [FileSchema], // removed files: the stored copy is kept for 30 days
+  preview: { fid: String, at: Date }, // a small first-page picture is kept (LibraryPreview) for this file
   claim: { userId: String, name: String, at: Date },
   dupOf: String, // uid of an item holding the same file
   dupRef: String,
@@ -77,8 +78,11 @@ const LibraryApprover = mongoose.model('LibraryApprover', new mongoose.Schema({
   userId: { type: String, unique: true }, byId: String, byName: String,
 }, { timestamps: true }));
 
+// Small first-page pictures (about 30–60 KB each), kept apart so lists stay light; loaded one by one as cards appear
+const LibraryPreview = mongoose.model('LibraryPreview', new mongoose.Schema({ uid: { type: String, unique: true }, fid: String, data: String }, { timestamps: true }));
+
 const nextNumber = async (name) => (await Counter.findOneAndUpdate({ _id: name }, { $inc: { seq: 1 } }, { upsert: true, new: true })).seq;
 
 const peekNumber = async (name) => ((await Counter.findById(name).lean())?.seq || 0) + 1;
 
-module.exports = { Counter, LibraryItem, LibraryTerm, LibraryApprover, nextNumber, peekNumber };
+module.exports = { Counter, LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, nextNumber, peekNumber };

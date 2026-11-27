@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../../components/ui/Icon';
 import ItemEditor from './ItemEditor';
+import Thumb, { rememberPicture, savePicture } from './Thumb';
+import { makePreview } from '../../services/files';
 import { ACCEPT, createItem, listItems, loadLists, problem, settleDuplicate, uploadToLibrary, MAX_MB } from '../../services/library';
 
 // The upload queue (design page 8): copies go in first, are saved at once with a Q number, and wait here
@@ -42,6 +44,11 @@ export default function LibraryQueue({ ctx, perms = {} }) {
         upd({ phase: 'saving' });
         const item = await createItem({ upload: up }, { onWait: (p) => upd({ phase: p }) });
         upd({ phase: 'saved', ref: item.ref, uid: item.uid, dup: item.dup?.ref });
+        // a picture of the first page, drawn here from the file just chosen (scores and pictures only)
+        if (/^(application\/pdf|image\/)/.test(file.type)) {
+          const pic = await makePreview(file);
+          if (pic) await savePicture(item.uid, item.files[0].fid, pic).then(() => rememberPicture(item.uid, pic)).catch(() => {});
+        }
         load();
       } catch (e) { upd({ phase: 'failed', msg: problem(e) }); }
     }
@@ -105,6 +112,7 @@ export default function LibraryQueue({ ctx, perms = {} }) {
             {data?.items.map((it) => (
               <div key={it.uid} className="lib-row">
                 <button type="button" className="lib-row-main" onClick={() => setOpen(it.uid)}>
+                  <Thumb uid={it.uid} has={it.preview} scope="items" draw={it.draw} canDraw alt={`First page of ${it.title}`} />
                   <span className="lib-q">{it.ref}</span>
                   <span className="lib-row-t"><b>{it.title || 'Untitled'}</b><span className="muted tiny">{it.existing ? 'Existing song · ' : ''}{it.files} file{it.files === 1 ? '' : 's'}{it.recording ? ' · recording' : ' · no recording yet'}</span></span>
                   <span className="lib-row-s"><span className={`lib-pill ${STATUS[it.status]?.[1] || ''}`}>{STATUS[it.status]?.[0] || it.status}</span><span className="lib-bar"><i style={{ width: `${(100 * it.done) / it.total}%` }} /></span><span className="tiny">{it.done}/{it.total}</span></span>

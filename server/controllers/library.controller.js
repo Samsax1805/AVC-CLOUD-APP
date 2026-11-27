@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const User = require('../models/User');
 const { AuditLog } = require('../models/records');
-const { LibraryItem, LibraryTerm, LibraryApprover, nextNumber, peekNumber } = require('../models/Library');
+const { LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, nextNumber, peekNumber } = require('../models/Library');
 const { Notification } = require('../models/records');
 const push = require('../services/push.service');
 const { isSystem } = require('../config/system');
@@ -173,7 +173,7 @@ const claimView = (c, me) => (c?.userId ? { name: c.name, mine: c.userId === me,
 const view = (doc, me, x = derive(doc)) => ({
   uid: doc.uid, ref: refOf(doc.qno), code: doc.code || null, status: AUTO.includes(doc.status) ? x.status : doc.status, existing: !!doc.existing, d: doc.d || {},
   meta: Object.fromEntries(Object.entries(doc.meta || {}).map(([k, m]) => [k, { r: m.r, byName: m.byName, at: m.at, mine: m.by === me }])),
-  done: x.done, total: REQUIRED.length, missing: x.missing,
+  done: x.done, total: REQUIRED.length, missing: x.missing, rev: doc.rev,
   files: (doc.files || []).map(fileView),
   claim: claimView(doc.claim, me),
   dup: doc.dupOf && !doc.dupDismissed ? { uid: doc.dupOf, ref: doc.dupRef } : null,
@@ -181,7 +181,7 @@ const view = (doc, me, x = derive(doc)) => ({
   sentBack: doc.status === 'sent' ? doc.sentBack : null,
   sent: doc.sentAt ? { byName: doc.sentByName, at: doc.sentAt } : null,
   urgent: doc.urgent?.at ? { reason: doc.urgent.reason, byName: doc.urgent.byName, at: doc.urgent.at } : null,
-  live: !!doc.live,
+  live: !!doc.live, preview: !!doc.preview?.fid,
   seal: doc.seal ? { code: doc.seal.code, byName: doc.seal.byName, at: doc.seal.at, self: doc.seal.self } : null,
   publishAt: doc.publishAt || null, publishedAt: doc.publishedAt || null,
   createdByName: doc.createdByName, createdAt: doc.createdAt, updatedAt: doc.updatedAt,
@@ -189,6 +189,7 @@ const view = (doc, me, x = derive(doc)) => ({
 });
 const card = (doc, me) => ({
   uid: doc.uid, ref: refOf(doc.qno), code: doc.code || null, title: doc.d?.title || '', status: doc.status, done: doc.done, total: REQUIRED.length, live: !!doc.live,
+  preview: !!doc.preview?.fid, draw: (({ fid, id, name, mime } = {}) => (id ? { fid, id, name, mime } : null))((doc.files || []).find((f) => f.id && /^(application\/pdf|image\/)/.test(f.mime || ''))),
   files: (doc.files || []).length,
   recording: (doc.files || []).some((f) => f.link || /^(audio|video)\//.test(f.mime || '')),
   existing: !!doc.existing,
@@ -364,7 +365,7 @@ exports.list = async (req, res) => {
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const filtered = filter !== 'all' || !!words;
   const [rows, counts, count] = await Promise.all([
-    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, live: 1, status: 1, 'd.title': 1, done: 1, 'files.link': 1, 'files.mime': 1, existing: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, live: 1, status: 1, preview: 1, 'd.title': 1, done: 1, 'files.id': 1, 'files.fid': 1, 'files.name': 1, 'files.link': 1, 'files.mime': 1, existing: 1, dupOf: 1, dupRef: 1, dupDismissed: 1, claim: 1, updatedAt: 1 })
       .sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
     countsFor(me, base),
     filtered ? LibraryItem.countDocuments(q) : null,
@@ -450,7 +451,8 @@ exports.save = async (req, res) => {
   // (one less wait per save). Every later change records it again, so it can never stay out of date.
   const x = derive(doc);
   settle(doc).catch((e) => console.error('Library progress not recorded:', e.message));
-  res.json({ ok: true, field, value: c.v, r: base + 1, done: x.done, total: REQUIRED.length, missing: x.missing, status: EDITABLE.includes(doc.status) ? x.status : doc.status });
+  // rev lets the screen ignore an older answer that arrives after a newer one (several fields saved at once)
+  res.json({ ok: true, field, value: c.v, r: base + 1, rev: doc.rev, done: x.done, total: REQUIRED.length, missing: x.missing, status: EDITABLE.includes(doc.status) ? x.status : doc.status });
 };
 
 // POST /api/library/items/:uid/files { upload | link, kind?, part? } — another score, part or recording
@@ -511,6 +513,7 @@ exports.removeFile = async (req, res) => {
     $inc: { rev: 1 },
   }, { new: true }).lean();
   if (!doc) return gone(res);
+  if (doc.preview?.fid === f.fid) { await LibraryPreview.deleteOne({ uid: doc.uid }); await LibraryItem.updateOne({ uid: doc.uid }, { $unset: { preview: '' } }); doc.preview = undefined; }
   doc = await settle(doc);
   res.json({ item: view(doc, req.user.id) });
 };
@@ -870,7 +873,8 @@ const sealedFiles = (doc) => {
 const catCard = (doc) => ({
   uid: doc.uid, code: doc.code || null, ref: refOf(doc.qno), title: doc.d?.title || '', status: doc.status === 'published' ? 'published' : 'urgent',
   summary: [doc.d?.genre, doc.d?.choirKey, (doc.d?.massParts || [])[0] || (doc.d?.occasions || [])[0]].filter(Boolean).join(' · '),
-  parts: partsOf(sealedFiles(doc)), files: sealedFiles(doc).length, type: doc.d?.type || 'song',
+  parts: partsOf(sealedFiles(doc)), files: sealedFiles(doc).length, type: doc.d?.type || 'song', preview: !!doc.preview?.fid,
+  draw: (({ fid, id, name, mime } = {}) => (id ? { fid, id, name, mime } : null))(sealedFiles(doc).find((f) => f.id && /^(application\/pdf|image\/)/.test(f.mime || ''))),
 });
 
 // GET /api/library/catalogue?type=&q=&sort=&page= — published music (and urgent music, marked), card fields only
@@ -884,7 +888,7 @@ exports.catalogue = async (req, res) => {
   const sort = { title: { 'd.title': 1 }, newest: { publishedAt: -1, 'urgent.at': -1 } }[req.query.sort] || { series: 1, codeNo: 1, qno: 1 };
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const [rows, total] = await Promise.all([
-    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.genre': 1, 'd.choirKey': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.type': 1, 'files.fid': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1 })
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.genre': 1, 'd.choirKey': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.type': 1, 'files.fid': 1, 'files.id': 1, 'files.name': 1, 'files.mime': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1, preview: 1 })
       .collation({ locale: 'en', strength: 2 }).sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
     LibraryItem.countDocuments(q),
   ]);
@@ -921,6 +925,35 @@ exports.catalogueAsSongs = async () => {
   });
 };
 exports.visibleIds = async (ids) => new Set((await LibraryItem.find({ uid: { $in: ids }, ...visible }, { uid: 1 }).lean()).map((d) => d.uid));
+
+/* ---------- first-page pictures ---------- */
+const PICTURE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+const sendPicture = (res, data) => {
+  const m = /^data:(image\/\w+);base64,(.+)$/.exec(data || '');
+  if (!m) return res.status(404).json({ msg: 'No picture' });
+  res.set({ 'Content-Type': m[1], 'Cache-Control': 'private, max-age=86400' }).send(Buffer.from(m[2], 'base64'));
+};
+// POST /api/library/items/:uid/preview { fid, data } — the officer's browser draws the first page and sends it here
+exports.savePreview = async (req, res) => {
+  if (!(await staff(req))) return deny(res);
+  const { fid, data } = req.body || {};
+  if (typeof data !== 'string' || !PICTURE.test(data) || data.length > 400000) return res.status(400).json({ msg: 'Send a small picture (under 300 KB)' });
+  const doc = await LibraryItem.findOne({ uid: req.params.uid, status: { $ne: 'removed' }, 'files.fid': String(fid) }, { uid: 1 }).lean();
+  if (!doc) return gone(res);
+  await LibraryPreview.updateOne({ uid: doc.uid }, { $set: { uid: doc.uid, fid: String(fid), data } }, { upsert: true });
+  await LibraryItem.updateOne({ uid: doc.uid }, { $set: { preview: { fid: String(fid), at: new Date() } } });
+  res.json({ ok: true });
+};
+// GET /api/library/items/:uid/preview — officers, for music still in the queue
+exports.itemPreview = async (req, res) => {
+  if (!(await staff(req))) return deny(res);
+  sendPicture(res, (await LibraryPreview.findOne({ uid: String(req.params.uid) }, { data: 1 }).lean())?.data);
+};
+// GET /api/library/catalogue/:uid/preview — every member, for published (or urgent) music
+exports.songPreview = async (req, res) => {
+  if (!(await LibraryItem.exists({ uid: String(req.params.uid), ...visible }))) return res.status(404).json({ msg: 'No picture' });
+  sendPicture(res, (await LibraryPreview.findOne({ uid: String(req.params.uid) }, { data: 1 }).lean())?.data);
+};
 
 exports.FIELDS = FIELDS;
 exports.REQUIRED = REQUIRED;

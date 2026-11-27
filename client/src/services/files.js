@@ -114,14 +114,16 @@ export const makePreview = async (file, width = 360) => {
       const pdfjs = await import('pdfjs-dist');
       const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
       pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-      const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      // (version 6 of the PDF reader closes a document through its loading task; pdf.destroy() no longer exists)
+      const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+      const pdf = await task.promise;
       const page = await pdf.getPage(1);
       const vp = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: width / vp.width });
       source = document.createElement('canvas');
       source.width = viewport.width; source.height = viewport.height;
       await page.render({ canvasContext: source.getContext('2d'), viewport }).promise;
-      pdf.destroy();
+      task.destroy().catch(() => {});
     } else if (file.type.startsWith('image/')) {
       source = await new Promise((resolve, reject) => {
         const img = new Image();
@@ -136,7 +138,17 @@ export const makePreview = async (file, width = 360) => {
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(source, 0, 0, out.width, out.height);
     return out.toDataURL('image/jpeg', 0.72);
-  } catch {
+  } catch (e) {
+    console.warn('No preview could be made:', e?.message || e);
     return '';
   }
+};
+
+// A first-page picture for a file already stored (used to fill in pictures that are missing)
+export const previewFromStored = async (id, name, type) => {
+  const src = await fileUrl(id, name);
+  const res = await fetch(src);
+  if (!res.ok) return '';
+  const blob = await res.blob();
+  return makePreview(new File([blob], name || 'file', { type: type || blob.type }));
 };

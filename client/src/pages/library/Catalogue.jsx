@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../components/ui/Icon';
 import Modal from '../../components/ui/Modal';
+import Thumb from './Thumb';
 import { openFile } from '../../services/files';
 import { catalogue, catalogueSong, problem, sizeLabel } from '../../services/library';
 
@@ -14,7 +15,7 @@ const LABELS = {
 };
 const show = (v) => (Array.isArray(v) ? v.join(', ') : String(v));
 
-export default function Catalogue({ me, toast }) {
+export default function Catalogue({ me, toast, canDraw = false }) {
   const [type, setType] = useState('song');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('code');
@@ -47,6 +48,7 @@ export default function Catalogue({ me, toast }) {
       <div className="lib-cards">
         {data?.items.map((s) => (
           <button type="button" key={s.uid} className={`lib-card ${s.status === 'urgent' ? 'urgent' : ''}`} onClick={() => setOpen(s.uid)}>
+            <Thumb uid={s.uid} has={s.preview} draw={s.draw} canDraw={canDraw} className="card-top" alt={`First page of ${s.title}`} />
             <span className="lib-card-top"><span className={s.code ? 'lib-code' : 'lib-q'}>{s.code || s.ref}</span><span className={`lib-pill ${s.status === 'urgent' ? 'lib-st-urgent' : 'lib-st-pub'}`}>{s.status === 'urgent' ? 'Urgent · not yet reviewed' : 'Published'}</span></span>
             <span className="lib-card-t">{s.title}</span>
             <span className="muted tiny">{s.summary || ' '}</span>

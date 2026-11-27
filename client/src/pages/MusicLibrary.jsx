@@ -7,7 +7,7 @@ import Icon from '../components/ui/Icon';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination, { usePaged } from '../components/ui/Pagination';
-import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOAD_MB, sizeOf } from '../services/files';
+import { uploadFile, deleteFile, makePreview, mediaDuration, openFile, MAX_UPLOAD_MB, sizeOf, previewFromStored } from '../services/files';
 import { addRecord, changeRecord, removeRecord, saveError } from '../services/records';
 
 const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
@@ -45,6 +45,25 @@ export default function MusicLibrary({ ctx }) {
   const [tab, setTab] = useState('library');
   const [songsFailed, setSongsFailed] = useState(false);
   useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Scores uploaded while page pictures were failing (22–27 Nov) have none: the officer's browser draws and saves them, one at a time
+  const tried = useRef(new Set());
+  useEffect(() => {
+    if (!canEdit) return;
+    const missing = songs.filter((s) => !s.catalogue && s.fileUrl && !s.preview && !s.hasPreview && !tried.current.has(s.id)
+      && (s.mime === 'application/pdf' || /^image\//.test(s.mime || '') || /PDF|Image/.test(s.format || '')));
+    if (!missing.length) return;
+    missing.forEach((s) => tried.current.add(s.id));
+    (async () => {
+      for (const s of missing) {
+        try {
+          const pic = await previewFromStored(s.fileUrl, s.fileName, s.mime);
+          if (!pic) continue;
+          await changeRecord('songs', s.id, { preview: pic });
+          setSongs((p) => p.map((x) => (x.id === s.id ? { ...x, preview: pic } : x)));
+        } catch { /* left as it was; tried again next visit */ }
+      }
+    })();
+  }, [songs, canEdit]); // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('');
   const [part, setPart] = useState('All');
   const [cat, setCat] = useState('All');
@@ -148,7 +167,7 @@ export default function MusicLibrary({ ctx }) {
         </div>
       </div>
       {tabs}
-      <Suspense fallback={null}><Catalogue me={me} toast={toast} /></Suspense>
+      <Suspense fallback={null}><Catalogue me={me} toast={toast} canDraw={lib.staff} /></Suspense>
       <div className="toolbar">
         <div className="search-box"><Icon name="search" size={15} /><input placeholder="Search by song name or category…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select className="input sm" aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}>
