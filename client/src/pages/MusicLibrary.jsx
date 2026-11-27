@@ -42,8 +42,10 @@ export default function MusicLibrary({ ctx }) {
   const [lib, setLib] = useState({ staff: PERMS.libraryQueue(me), approve: false, manageApprovers: false });
   useEffect(() => { api.get('/library/me').then(({ data }) => setLib(data)).catch(() => {}); }, []);
   const canQueue = lib.staff;
-  const [tab, setTab] = useState(ctx.musicTab ? 'queue' : 'library');
-  useEffect(() => { if (ctx.musicTab && canQueue) setTab('queue'); }, [ctx.musicTab, canQueue]);
+  // ctx.musicTab is "queue-…" (New Upload) or "approvals-…" (from the Help Centre)
+  const wanted = String(ctx.musicTab || '').startsWith('approvals') ? 'approvals' : 'queue';
+  const [tab, setTab] = useState(ctx.musicTab ? wanted : 'library');
+  useEffect(() => { if (ctx.musicTab && canQueue) setTab(wanted); }, [ctx.musicTab, canQueue]); // eslint-disable-line react-hooks/exhaustive-deps
   const [songsFailed, setSongsFailed] = useState(false);
   useEffect(() => { loadSongs?.().catch(() => setSongsFailed(true)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Scores uploaded while page pictures were failing (22–27 Nov) have none: the officer's browser draws and saves them, one at a time

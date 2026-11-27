@@ -1210,3 +1210,31 @@ i.bday{background:#ec4899;border-radius:2px}
 .lib-card .lib-thumb.card-top{width:calc(100% + 28px);height:160px;margin:-12px -14px 8px;border:none;border-bottom:1px solid var(--line);border-radius:10px 10px 0 0}
 .lib-row-main{grid-template-columns:44px 64px 1fr 150px 92px}
 @media(max-width:920px){.lib-row-main{grid-template-columns:44px 56px 1fr}.lib-row-s,.lib-row-w{grid-column:3}.lib-dup{padding-left:126px}}
+
+/* Help Centre */
+.help-search{max-width:640px;background:#fff}
+.help-search input{flex:1;border:0;outline:0;background:transparent;font-size:14px;color:var(--ink)}
+.help-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.help-guide{border:1px solid var(--line);border-radius:9px;background:#fff;overflow:hidden}
+.help-guide.open{border-color:var(--gold)}
+.help-guide-h{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;background:none;border:0;text-align:left;cursor:pointer;color:var(--ink)}
+.help-guide-t{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.help-chev{font-size:20px;font-weight:700;color:var(--gold2);line-height:1}
+.help-guide-b{padding:0 14px 14px}
+.help-steps{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.5}
+.help-tip{margin-top:8px;padding:8px 10px;border-radius:7px;background:#fbf3df;font-size:12.5px;line-height:1.45}
+.help-q{border-top:1px solid var(--line);padding:10px 0}
+.help-q:first-of-type{border-top:0}
+.help-q summary{cursor:pointer;font-weight:600;font-size:13.5px}
+.help-q p,.help-faq p{margin:6px 0 0;font-size:13px;line-height:1.5;color:var(--mut)}
+.help-faq{border-top:1px solid var(--line);padding:10px 0;font-size:13.5px}
+.help-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.help-safe{margin:8px 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5}
+.help-you{border-color:var(--gold)}
+@media (max-width:768px){.help-two{grid-template-columns:1fr}.help-search{min-width:0;max-width:none}}
+.dark .help-search,.dark .help-guide{background:#1a2c55;border-color:#2c4070}
+.dark .help-guide-h,.dark .help-search input{color:#eee7d6}
+.dark .help-tip{background:#3a2f12;color:#f5d48a}
+.dark .help-q,.dark .help-faq{border-color:#2c4070}
+.dark .help .lib-side-h,.dark .help-steps,.dark .help-safe,.dark .help-q summary,.dark .help-faq,.dark .help-guide-t b{color:#eee7d6}
+.dark .help-q p,.dark .help-faq p{color:#cbd3ea}

@@ -26,6 +26,7 @@ const ProbationPage = lazy(() => import('../pages/Probation'));
 const SecurityPage = lazy(() => import('../pages/Security'));
 const PsalmistsPage = lazy(() => import('../pages/Psalmists'));
 const FinancePage = lazy(() => import('../pages/Finance'));
+const HelpPage = lazy(() => import('../pages/HelpCentre'));
 import DutyChat from './DutyChat';
 import LiveUpdates from './LiveUpdates';
 
@@ -54,7 +55,9 @@ export default function AppShell() {
     );
   }
 
-  const ctx = { ...data, me, setPage, settingsTab, musicTab };
+  // the Help Centre's buttons open a page, and a tab on it when there is one
+  const openHelp = (g) => { if (g.tab) setSettingsTab(g.tab); else setSettingsTab(g.page === 'profile' ? 'overview' : 'profile'); if (g.musicTab) setMusicTab(`${g.musicTab}-${Date.now()}`); setPage(g.page); };
+  const ctx = { ...data, me, setPage, settingsTab, musicTab, openHelp };
   const nav = (typeof visibleNav === 'function' ? visibleNav(me) : NAV_DEFS) || [];
   const es = data.electionStatus;
   const electionBadge = es?.stage === 'live' ? 'LIVE' : es?.stage === 'nominations' ? 'Open' : es?.stage === 'published' ? 'New' : null;
@@ -85,6 +88,7 @@ export default function AppShell() {
       case 'announcements': return <AnnouncementsPage ctx={ctx} />;
       case 'documents': return <DocumentsPage ctx={ctx} />;
       case 'probation': return <ProbationPage ctx={ctx} />;
+      case 'help': return <HelpPage ctx={ctx} />;
       default: return <Dashboard ctx={ctx} />;
     }
   };
@@ -119,7 +123,7 @@ export default function AppShell() {
             setSettingsTab('security');
             setPage('profile');
           }}><Icon name="lock" size={16} /><span>Security</span></button>
-          <button className="nav-item"><Icon name="bell" size={16} /><span>Help Centre</span></button>
+          <button className={`nav-item ${page === 'help' ? 'active' : ''}`} onClick={() => { setPage('help'); setSideOpen(false); }}><Icon name="note" size={16} /><span>Help Centre</span></button>
           <div className="dm-row">
             <span className="dm-l"><Icon name="moon" size={15} /> Dark Mode</span>
             <button className={`toggle ${dark ? 'on' : ''}`} onClick={() => setDark((d) => !d)}><span /></button>
