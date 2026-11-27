@@ -45,12 +45,52 @@ export const fileUrl = async (id, name) => {
   return entry.url;
 };
 
+// Opening a file never shows the storage address: the file is fetched here and shown from the site's own
+// blob: address (blob:https://avcsb.com/…), so the signed storage link never reaches the address bar.
+// Where the browser cannot show a file itself (a PDF on most phones, Word/Excel files), it is downloaded
+// with its real name instead, which is masked the same way.
+const held = new Map(); // id → Promise<{ url, type }>, kept briefly so opening it again is instant
+const KEEP_MS = 5 * 60 * 1000;
+const fetchHere = (id, name) => {
+  if (!held.has(id)) {
+    const p = (async () => {
+      const src = await fileUrl(id, name);
+      const res = await fetch(src).catch(() => null);
+      if (!res || !res.ok) throw new Error(res?.status === 404 || res?.status === 403 ? 'File not found' : 'Could not load file — check your connection');
+      const blob = await res.blob();
+      return { url: src.startsWith('blob:') ? src : URL.createObjectURL(blob), type: blob.type || '' };
+    })();
+    held.set(id, p.catch((e) => { held.delete(id); throw e; }));
+    setTimeout(() => { const h = held.get(id); held.delete(id); h?.then((x) => !isLegacy(id) && setTimeout(() => URL.revokeObjectURL(x.url), 60000)).catch(() => {}); }, KEEP_MS);
+  }
+  return held.get(id);
+};
+const shownHere = (type, name) => {
+  const t = type || '';
+  if (t === 'application/pdf' || /\.pdf$/i.test(name || '')) return navigator.pdfViewerEnabled !== false;
+  return /^(image|audio|video|text)\//.test(t);
+};
+const esc = (s) => String(s || 'file').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 export const openFile = async (id, name) => {
-  const url = await fileUrl(id, name);
-  const a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  if (name && isLegacy(id)) a.download = name;
-  a.click();
+  // The tab opens at the tap itself (so pop-up blockers allow it) and shows "Opening…" while the file arrives
+  const win = window.open('', '_blank');
+  try {
+    if (win) {
+      win.opener = null;
+      win.document.title = name || 'File';
+      win.document.body.innerHTML = `<p style="font:15px system-ui,sans-serif;color:#22315f;padding:24px">Opening ${esc(name)}…</p>`;
+    }
+    const { url, type } = await fetchHere(id, name);
+    if (win && shownHere(type, name)) { win.location.replace(url); return; }
+    win?.close();
+    const a = document.createElement('a');
+    a.href = url; a.download = name || 'file';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) {
+    win?.close();
+    throw e;
+  }
 };
 
 export const deleteFile = (id) => (id ? api.delete(`/files/${id}`).catch(() => {}) : Promise.resolve());
