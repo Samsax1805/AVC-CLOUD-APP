@@ -158,18 +158,43 @@ export const HELP_ARTICLES = [
   {
     id: 'library', group: 'music', who: 'everyone', title: 'Finding and practising music',
     summary: 'Search the library, play your part and download scores.',
-    tags: 'music library songs catalogue search part soprano alto tenor bass download score play chr ins',
+    tags: 'music library songs catalogue search lyrics words filter communion entrance season voicing part soprano alto tenor bass view print download score play chr ins related',
     steps: [
       'Open Music & Files. The Catalogue at the top lists approved music with its number: CHR for songs, INS for instrumental pieces.',
-      'Search by title, number, composer, first line or language, and switch between Songs and Instrumental.',
-      'Open a song to see its files with your own voice part first, its details (key, tempo, season, Mass part) and copyright.',
-      'Play recordings, or open / download scores to practise.',
+      'Browse with the tiles (Communion, Entrance…) and the season and voicing lists. The numbers show how many songs each has.',
+      'Search by title, number, composer, or any words of the song you remember. The matching words show on the card.',
+      'Open a song: your own voice part comes first, then the words, its details and copyright, and related songs.',
+      'Press View to read a score on the page, zoom with − and +, and Print it. Open / download keeps a copy.',
     ],
     tips: [
       'A song marked "Urgent · not yet reviewed" was published quickly because it was needed (for example for Sunday). It gets its number once it has been approved.',
       'Each card shows the first page of the score. Dots show which voice parts have their own file.',
     ],
     go: { page: 'music', label: 'Open Music & Files' },
+  },
+  {
+    id: 'request', group: 'music', who: 'everyone', title: 'Asking for a song the library doesn\'t have',
+    summary: 'Request a song and you are told in Messages when it is added.',
+    tags: 'request song missing ask custodian find',
+    steps: [
+      'In Music & Files press Request a song (in the Catalogue).',
+      'Say which song, add anything that helps (a version, a recording link) and, if you need it soon, the date.',
+      'The Custodian is told straight away. When it is in the library, or can\'t be found, you get a message, and Request a song shows the answer.',
+    ],
+    tips: ['You can have up to 5 requests waiting. Withdraw one you no longer need.'],
+    go: { page: 'music', label: 'Open Music & Files' },
+  },
+  {
+    id: 'requests', group: 'music', who: ['custodian', 'choirmaster', 'asstchoirmaster', 'president', 'admin'], title: 'Answering song requests',
+    summary: 'See what members have asked for and tell them when it is in the library.',
+    tags: 'requests song request answer custodian found not possible',
+    steps: [
+      'You get a message when a member requests a song. Open Music & Files → Requests.',
+      'Add the song through the Upload queue as usual.',
+      'Press In the library, pick the song from the catalogue (optional) and add a note. Or press Not possible and say why.',
+      'The member is told in Messages. Reopen an answered request if needed.',
+    ],
+    go: { page: 'music', musicTab: 'requests', label: 'Open Requests' },
   },
   {
     id: 'voicenotes', group: 'music', who: 'everyone', title: 'Voice notes',
@@ -186,6 +211,7 @@ export const HELP_ARTICLES = [
       'Press New Upload in the menu (or Music & Files → Upload music). This opens the Upload queue.',
       'Drop score copies (PDF, picture, MusicXML or MuseScore), audio, MIDI or video: several at once, up to 100 MB each. Each is saved straight away with a queue number such as Q-0042. Only a recording? Paste its link.',
       'Open the item and fill in its details. Each field saves by itself; there is no Save button. Add part scores and recordings from the item\'s page.',
+      'For songs, paste the words into Words (lyrics) so members can find the song by any line. The first line fills itself in.',
       'When the checklist shows 10 of 10, press Send for approval. The details lock while the approvers look.',
     ],
     tips: [

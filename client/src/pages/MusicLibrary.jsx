@@ -15,6 +15,7 @@ const ACCEPT = 'audio/*,application/pdf,image/*,video/*';
 const LibraryQueue = lazy(() => import('./library/LibraryQueue'));
 const Approvals = lazy(() => import('./library/Approvals'));
 const Catalogue = lazy(() => import('./library/Catalogue'));
+const SongRequests = lazy(() => import('./library/SongRequests'));
 
 // A song's picture preview, fetched only when its card scrolls into view (kept by the browser for a day)
 const previews = new Map();
@@ -42,8 +43,8 @@ export default function MusicLibrary({ ctx }) {
   const [lib, setLib] = useState({ staff: PERMS.libraryQueue(me), approve: false, manageApprovers: false });
   useEffect(() => { api.get('/library/me').then(({ data }) => setLib(data)).catch(() => {}); }, []);
   const canQueue = lib.staff;
-  // ctx.musicTab is "queue-…" (New Upload) or "approvals-…" (from the Help Centre)
-  const wanted = String(ctx.musicTab || '').startsWith('approvals') ? 'approvals' : 'queue';
+  // ctx.musicTab is "queue-…" (New Upload), or "approvals-…" / "requests-…" (from the Help Centre)
+  const wanted = ['approvals', 'requests'].find((t) => String(ctx.musicTab || '').startsWith(t)) || 'queue';
   const [tab, setTab] = useState(ctx.musicTab ? wanted : 'library');
   useEffect(() => { if (ctx.musicTab && canQueue) setTab(wanted); }, [ctx.musicTab, canQueue]); // eslint-disable-line react-hooks/exhaustive-deps
   const [songsFailed, setSongsFailed] = useState(false);
@@ -137,6 +138,7 @@ export default function MusicLibrary({ ctx }) {
     <div className="tabs" role="tablist" style={{ marginBottom: 4 }}>
       <button type="button" role="tab" aria-selected={tab === 'library'} className={`tab ${tab === 'library' ? 'on' : ''}`} onClick={() => setTab('library')}>Library</button>
       <button type="button" role="tab" aria-selected={tab === 'queue'} className={`tab ${tab === 'queue' ? 'on' : ''}`} onClick={() => setTab('queue')}>Upload queue</button>
+      <button type="button" role="tab" aria-selected={tab === 'requests'} className={`tab ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>Requests</button>
       {lib.approve && <button type="button" role="tab" aria-selected={tab === 'approvals'} className={`tab ${tab === 'approvals' ? 'on' : ''}`} onClick={() => setTab('approvals')}>Approvals</button>}
     </div>
   );
@@ -146,6 +148,15 @@ export default function MusicLibrary({ ctx }) {
         <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Approving issues the permanent CHR or INS number and seals exactly what was approved.</p></div></div>
         {tabs}
         <Suspense fallback={<p className="muted small">Opening approvals…</p>}><Approvals ctx={ctx} perms={lib} /></Suspense>
+      </div>
+    );
+  }
+  if (canQueue && tab === 'requests') {
+    return (
+      <div className="stack">
+        <div className="page-head"><div><h2>Music Library</h2><p className="muted small">Songs members have asked for. Mark each one when it is in the library, and they are told in Messages.</p></div></div>
+        {tabs}
+        <Suspense fallback={<p className="muted small">Opening requests…</p>}><SongRequests toast={toast} /></Suspense>
       </div>
     );
   }

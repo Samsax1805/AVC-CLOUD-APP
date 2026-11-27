@@ -136,3 +136,7 @@ export const addApprover = (userId) => api.post('/library/approvers', { userId }
 export const removeApprover = (userId) => api.delete(`/library/approvers/${userId}`).then(({ data }) => data);
 export const catalogue = (params) => api.get('/library/catalogue', { params }).then(({ data }) => data);
 export const catalogueSong = (uid) => api.get(`/library/catalogue/${uid}`).then(({ data }) => data.song);
+export const catalogueFilters = (params) => api.get('/library/catalogue/filters', { params }).then(({ data }) => data);
+export const songRequests = () => api.get('/library/requests').then(({ data }) => data);
+export const requestSong = (body) => api.post('/library/requests', body).then(({ data }) => data.request);
+export const answerRequest = (id, body) => api.patch(`/library/requests/${id}`, body).then(({ data }) => data.request);

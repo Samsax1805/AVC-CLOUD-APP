@@ -65,6 +65,8 @@ const fetchHere = (id, name) => {
   }
   return held.get(id);
 };
+// The file itself (as a blob: address on this site), for the score viewer
+export const fileHere = (id, name) => fetchHere(id, name);
 const shownHere = (type, name) => {
   const t = type || '';
   if (t === 'application/pdf' || /\.pdf$/i.test(name || '')) return navigator.pdfViewerEnabled !== false;

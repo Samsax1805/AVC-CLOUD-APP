@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const User = require('../models/User');
 const { AuditLog } = require('../models/records');
-const { LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, nextNumber, peekNumber } = require('../models/Library');
+const { LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, SongRequest, nextNumber, peekNumber } = require('../models/Library');
+const ChatMessage = require('../models/ChatMessage');
 const { Notification } = require('../models/records');
 const push = require('../services/push.service');
 const { isSystem } = require('../config/system');
@@ -40,11 +41,14 @@ const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]
 const long = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim().slice(0, n) : '');
 const refOf = (qno) => `Q-${String(qno).padStart(4, '0')}`;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Search words match across punctuation and line breaks: "lord have mercy" finds "Lord, have mercy"
+const wordsRe = (q) => q.split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(esc).join('\\W+');
 
 // The details and what each may hold. one / many = from a list, or a custom entry where the list allows it.
 const FIELDS = {
   title: { t: 'text', n: 200 },
   firstLine: { t: 'text', n: 300 },
+  lyrics: { t: 'long', n: 8000 }, // the full words, so members can find a song by any line they remember
   composer: { t: 'text', n: 120 },
   arranger: { t: 'text', n: 120 },
   type: { t: 'pick', of: ['song', 'instrumental'] },
@@ -152,8 +156,8 @@ const here = (uid, except) => {
 const derive = (doc) => {
   const d = doc.d || {};
   const missing = REQUIRED.filter(([, ok]) => !ok(d, doc.files)).map(([k]) => k);
-  const search = [refOf(doc.qno), doc.code, d.title, d.composer, d.arranger, d.firstLine, d.genre, ...(d.languages || []), ...(doc.files || []).map((f) => f.name)]
-    .filter(Boolean).join(' ').toLowerCase().slice(0, 2000);
+  const search = [refOf(doc.qno), doc.code, d.title, d.composer, d.arranger, d.firstLine, d.genre, ...(d.languages || []), ...(doc.files || []).map((f) => f.name), d.lyrics]
+    .filter(Boolean).join(' ').toLowerCase().replace(/\s+/g, ' ').slice(0, 10000);
   return { done: REQUIRED.length - missing.length, missing, search, status: missing.length ? 'needs' : 'ready' };
 };
 
@@ -327,7 +331,7 @@ const findDup = async (file, notUid) => (file.etag ? LibraryItem.findOne(
 /* ---------- the queue ---------- */
 // The filter counts change slowly: kept for 5 seconds per person, and dropped at once when the queue changes
 const countCache = new Map();
-const invalidate = () => countCache.clear();
+const invalidate = () => { countCache.clear(); facetCache.clear(); };
 const countsFor = async (me, base) => {
   const hit = countCache.get(me);
   if (hit && hit.at > Date.now() - 5000) return hit.c;
@@ -360,7 +364,7 @@ exports.list = async (req, res) => {
   if (filter === 'duplicates') { q.dupOf = { $exists: true, $ne: null }; q.dupDismissed = { $ne: true }; }
   if (filter === 'mine') q['claim.userId'] = me;
   const words = text(req.query.q, 80).toLowerCase();
-  if (words) q.search = { $regex: esc(words) };
+  if (wordsRe(words)) q.search = { $regex: wordsRe(words) };
   const sort = { progress: { done: -1, qno: 1 }, recent: { updatedAt: -1 }, newest: { qno: -1 } }[req.query.sort] || { qno: 1 };
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const filtered = filter !== 'all' || !!words;
@@ -877,25 +881,92 @@ const catCard = (doc) => ({
   draw: (({ fid, id, name, mime } = {}) => (id ? { fid, id, name, mime } : null))(sealedFiles(doc).find((f) => f.id && /^(application\/pdf|image\/)/.test(f.mime || ''))),
 });
 
-// GET /api/library/catalogue?type=&q=&sort=&page= — published music (and urgent music, marked), card fields only
+// The catalogue's filters. Counts are worked out on the server from details songs already have, kept for a minute
+// (and cleared whenever something is published), so they cost nothing as people browse.
+const FACETS = { massPart: 'd.massParts', season: 'd.seasons', voicing: 'd.voicing' };
+const facetCache = new Map();
+const catalogueQuery = (query, skip) => {
+  const q = { ...visible };
+  if (query.type === 'instrumental') q['d.type'] = 'instrumental';
+  else if (query.type === 'song') q['d.type'] = { $ne: 'instrumental' };
+  for (const [k, path] of Object.entries(FACETS)) { const v = text(query[k], 120); if (v && k !== skip) q[path] = v; }
+  const words = text(query.q, 80).toLowerCase();
+  if (wordsRe(words)) q.search = { $regex: wordsRe(words) };
+  return q;
+};
+// A few words of the lyrics around what was searched, so people see why a song came up
+const lyricHit = (lyrics, words) => {
+  const re = wordsRe(words); if (!lyrics || !re) return '';
+  const m = new RegExp(re, 'i').exec(lyrics.replace(/\s+/g, ' '));
+  if (!m) return '';
+  const flat = lyrics.replace(/\s+/g, ' ');
+  const from = Math.max(0, m.index - 30); const to = Math.min(flat.length, m.index + m[0].length + 40);
+  return `${from ? '…' : ''}${flat.slice(from, to).trim()}${to < flat.length ? '…' : ''}`;
+};
+
+// GET /api/library/catalogue?type=&q=&sort=&page=&massPart=&season=&voicing= — published music (and urgent music, marked), card fields only
 exports.catalogue = async (req, res) => {
   await publishDue();
-  const q = { ...visible };
-  if (req.query.type === 'instrumental') q['d.type'] = 'instrumental';
-  else if (req.query.type === 'song') q['d.type'] = { $ne: 'instrumental' };
+  const q = catalogueQuery(req.query);
   const words = text(req.query.q, 80).toLowerCase();
-  if (words) q.search = { $regex: esc(words) };
   const sort = { title: { 'd.title': 1 }, newest: { publishedAt: -1, 'urgent.at': -1 } }[req.query.sort] || { series: 1, codeNo: 1, qno: 1 };
   const page = Math.max(1, Math.min(1000, Number(req.query.page) || 1));
   const [rows, total] = await Promise.all([
-    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.genre': 1, 'd.choirKey': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.type': 1, 'files.fid': 1, 'files.id': 1, 'files.name': 1, 'files.mime': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1, preview: 1 })
+    LibraryItem.find(q, { uid: 1, qno: 1, code: 1, status: 1, 'd.title': 1, 'd.genre': 1, 'd.choirKey': 1, 'd.massParts': 1, 'd.occasions': 1, 'd.type': 1, ...(words ? { 'd.lyrics': 1 } : {}), 'files.fid': 1, 'files.id': 1, 'files.name': 1, 'files.mime': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1, preview: 1 })
       .collation({ locale: 'en', strength: 2 }).sort(sort).skip((page - 1) * PAGE).limit(PAGE).lean(),
     LibraryItem.countDocuments(q),
   ]);
-  res.json({ items: rows.map(catCard), total, page, pages: Math.max(1, Math.ceil(total / PAGE)) });
+  res.json({
+    items: rows.map((doc) => { const c = catCard(doc); const hit = words && !String(doc.d?.title || '').toLowerCase().includes(words) ? lyricHit(doc.d?.lyrics, words) : ''; return hit ? { ...c, lyric: hit } : c; }),
+    total, page, pages: Math.max(1, Math.ceil(total / PAGE)),
+  });
 };
 
-// GET /api/library/catalogue/:uid — one song's page for members: details, copyright and its files
+// GET /api/library/catalogue/filters?type=&q=&massPart=&season=&voicing= — each filter's choices with how many songs
+// each would show, given the other filters already chosen
+exports.filters = async (req, res) => {
+  await publishDue();
+  const key = JSON.stringify(['type', 'q', ...Object.keys(FACETS)].map((k) => text(req.query[k], 120)));
+  const hit = facetCache.get(key);
+  if (hit && hit.until > Date.now()) return res.json(hit.data);
+  const out = {};
+  await Promise.all(Object.entries(FACETS).map(async ([k, path]) => {
+    const rows = await LibraryItem.aggregate([
+      { $match: catalogueQuery(req.query, k) },
+      { $project: { v: `$${path}` } },
+      { $unwind: '$v' },
+      { $match: { v: { $type: 'string', $ne: '' } } },
+      { $group: { _id: '$v', n: { $sum: 1 } } },
+      { $sort: { n: -1, _id: 1 } },
+      { $limit: 60 },
+    ]);
+    out[k] = rows.map((r) => ({ value: r._id, n: r.n }));
+  }));
+  if (facetCache.size > 300) facetCache.clear();
+  facetCache.set(key, { until: Date.now() + 60000, data: out });
+  res.json(out);
+};
+
+// Up to 6 songs like this one: same part of the Mass or occasion, season, composer or genre ("Any season" doesn't count)
+const relatedTo = async (doc) => {
+  const d = doc.d || {};
+  const seasons = (d.seasons || []).filter((x) => !/^any season$/i.test(x));
+  const or = [
+    ...(d.massParts?.length ? [{ 'd.massParts': { $in: d.massParts } }] : []),
+    ...(d.occasions?.length ? [{ 'd.occasions': { $in: d.occasions } }] : []),
+    ...(seasons.length ? [{ 'd.seasons': { $in: seasons } }] : []),
+    ...(d.composer && !/^(traditional|unknown|anonymous)$/i.test(d.composer) ? [{ 'd.composer': d.composer }] : []),
+  ];
+  if (!or.length) return [];
+  const rows = await LibraryItem.find({ ...visible, uid: { $ne: doc.uid }, $and: [{ $or: or }] }, { uid: 1, qno: 1, code: 1, status: 1, d: 1, preview: 1, 'files.fid': 1, 'files.id': 1, 'files.name': 1, 'files.mime': 1, 'files.kind': 1, 'files.part': 1, 'files.etag': 1, 'files.size': 1, seal: 1 }).limit(60).lean();
+  const shared = (a = [], b = []) => a.filter((x) => b.includes(x)).length;
+  const score = (o) => 3 * shared(o.d?.massParts, d.massParts) + 2 * shared(o.d?.occasions, d.occasions) + 2 * shared(o.d?.seasons, seasons)
+    + (d.composer && o.d?.composer === d.composer ? 2 : 0) + (d.genre && o.d?.genre === d.genre ? 1 : 0) + ((o.d?.type || 'song') === (d.type || 'song') ? 1 : 0);
+  return rows.map((o) => ({ o, n: score(o) })).sort((x, y) => y.n - x.n || String(x.o.d?.title).localeCompare(String(y.o.d?.title))).slice(0, 6)
+    .map(({ o }) => { const c = catCard(o); return { uid: c.uid, code: c.code, ref: c.ref, title: c.title, summary: c.summary, status: c.status, preview: c.preview, draw: c.draw }; });
+};
+
+// GET /api/library/catalogue/:uid — one song's page for members: details, copyright, its files and related songs
 exports.song = async (req, res) => {
   const doc = await LibraryItem.findOne({ uid: req.params.uid, ...visible }).lean();
   if (!doc) return res.status(404).json({ msg: 'This music is not in the library' });
@@ -905,8 +976,80 @@ exports.song = async (req, res) => {
       approved: doc.status === 'published' && doc.seal ? { byName: doc.seal.byName, at: doc.seal.at, self: !!doc.seal.self, verified: sealedFiles(doc).length === (doc.files || []).length } : null,
       urgent: doc.status !== 'published' && doc.urgent?.at ? { reason: doc.urgent.reason, at: doc.urgent.at } : null,
       publishedAt: doc.publishedAt || null,
+      related: await relatedTo(doc).catch(() => []),
     },
   });
+};
+
+/* ---------- "Request a song": members ask, the Custodian answers ---------- */
+const requestKeepers = async () => {
+  for (const role of [['custodian'], ['choirmaster', 'asstchoirmaster'], ['president']]) {
+    const users = (await User.find({ status: 'active', roles: { $in: role, $nin: ['alumni'] } }, { _id: 1, email: 1 }).lean()).filter((u) => !isSystem(u));
+    if (users.length) return users.map((u) => String(u._id));
+  }
+  return [];
+};
+const tell = async (ids, msg, tag) => {
+  await Promise.all(ids.map((userId) => ChatMessage.create({ userId, from: 'bot', text: msg }).catch(() => {})));
+  push.toUsers(ids, msg.split('\n')[0], tag);
+};
+const requestView = (r, me) => ({ id: r.uid, title: r.title, details: r.details || '', neededBy: r.neededBy || '', byName: r.byName, mine: r.by === me, status: r.status, reply: r.reply || '', doneByName: r.doneByName || '', doneAt: r.doneAt || null, song: r.song || '', at: r.createdAt });
+const OPEN_MAX = 5;
+
+// GET /api/library/requests — the music team sees every request; others see their own
+exports.requests = async (req, res) => {
+  const team = await staff(req);
+  const rows = await SongRequest.find(team ? {} : { by: req.user.id }).sort({ status: 1, createdAt: -1 }).limit(100).lean();
+  const sorted = [...rows.filter((r) => r.status === 'open'), ...rows.filter((r) => r.status !== 'open')];
+  res.json({ team, requests: sorted.map((r) => requestView(r, req.user.id)) });
+};
+
+// POST /api/library/requests { title, details, neededBy } — any member asks for music the library doesn't have
+exports.request = async (req, res) => {
+  if ((req.user.roles || []).includes('alumni')) return res.status(403).json({ msg: 'Old Members can\'t request songs' });
+  const title = text(req.body?.title, 200);
+  if (title.length < 2) return res.status(400).json({ msg: 'Say which song you need' });
+  const details = long(req.body?.details, 600);
+  const neededBy = DAY.test(req.body?.neededBy || '') ? req.body.neededBy : '';
+  if (await SongRequest.countDocuments({ by: req.user.id, status: 'open' }) >= OPEN_MAX) return res.status(429).json({ msg: `You already have ${OPEN_MAX} requests waiting. Wait for an answer, or withdraw one.` });
+  const by = await nameOf(req.user.id);
+  const r = await SongRequest.create({ uid: `req-${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`, title, details, neededBy, by: req.user.id, byName: by });
+  const keepers = (await requestKeepers()).filter((id) => id !== req.user.id);
+  tell(keepers, `🎶 Song request from ${by}: "${title}"${neededBy ? ` (needed by ${neededBy})` : ''}${details ? `\n${details}` : ''}\nAnswer it in Music & Files → Requests.`, `lib-req-${r.uid}`).catch(() => {});
+  audit(req, 'Requested a song', title);
+  res.status(201).json({ request: requestView(r.toObject(), req.user.id) });
+};
+
+// PATCH /api/library/requests/:id { status: found|declined|open|withdrawn, reply, song } — the music team answers; the asker can withdraw
+exports.answerRequest = async (req, res) => {
+  const r = await SongRequest.findOne({ uid: req.params.id });
+  if (!r) return res.status(404).json({ msg: 'This request is no longer there' });
+  const status = req.body?.status;
+  const team = await staff(req);
+  if (status === 'withdrawn') {
+    if (r.by !== req.user.id) return res.status(403).json({ msg: 'Only the person who asked can withdraw a request' });
+    if (r.status !== 'open') return res.status(409).json({ msg: 'This request has already been answered' });
+  } else {
+    if (!team) return deny(res);
+    if (!['found', 'declined', 'open'].includes(status)) return res.status(400).json({ msg: 'Choose found, declined or reopen' });
+  }
+  let song = '';
+  if (status === 'found' && req.body?.song) {
+    const s = await LibraryItem.findOne({ uid: String(req.body.song), ...visible }, { uid: 1 }).lean();
+    if (!s) return res.status(400).json({ msg: 'That song is not in the catalogue' });
+    song = s.uid;
+  }
+  const who = await nameOf(req.user.id);
+  Object.assign(r, { status, reply: status === 'open' ? '' : long(req.body?.reply, 400), song, doneBy: req.user.id, doneByName: who, doneAt: new Date() });
+  await r.save();
+  if (status === 'found' || status === 'declined') {
+    const msg = status === 'found'
+      ? `✅ Your song request "${r.title}" has been answered by ${who}: it is in the library now.${r.reply ? `\n${r.reply}` : ''}`
+      : `Your song request "${r.title}" couldn't be met (${who}).${r.reply ? `\n${r.reply}` : ''}`;
+    if (r.by !== req.user.id) tell([r.by], msg, `lib-req-${r.uid}`).catch(() => {});
+  }
+  audit(req, status === 'withdrawn' ? 'Withdrew a song request' : `Song request ${status === 'open' ? 'reopened' : status}`, r.title);
+  res.json({ request: requestView(r.toObject(), req.user.id) });
 };
 
 // Catalogue songs as simple song records, so Calendar setlists, My Account and search can use them

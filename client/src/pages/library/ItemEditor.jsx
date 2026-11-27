@@ -9,7 +9,7 @@ import {
 
 // One queue item's details (design page 9). Every field saves on its own; there is no Save button.
 export const LABELS = {
-  title: 'Title', type: 'Type', genre: 'Genre', composer: 'Composer', arranger: 'Arranger', firstLine: 'First line',
+  title: 'Title', type: 'Type', genre: 'Genre', composer: 'Composer', arranger: 'Arranger', firstLine: 'First line', lyrics: 'Words (lyrics)',
   languages: 'Language', choirKey: 'Choir key', originalKey: 'Original key', voicing: 'Voicing', instruments: 'Instruments',
   tempo: 'Tempo', bpm: 'BPM', tempoChanges: 'Tempo changes', character: 'Character', difficulty: 'Difficulty',
   massParts: 'Part of Mass', occasions: 'Occasion', seasons: 'Season / feast', themes: 'Theme',
@@ -55,6 +55,8 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
   const typing = (f) => here.filter((p) => p.field === f).map((p) => p.name.split(' ')[0]);
   const isInstr = values.type === 'instrumental';
 
+  // The words' first line fills in "First line" when that is still empty
+  const fillFirstLine = () => { const line = String(values.lyrics || '').split('\n').map((x) => x.trim()).find(Boolean); if (line && !String(values.firstLine || '').trim()) set('firstLine', line.slice(0, 300)); };
   const field = (f, kind, extra = {}) => {
     const req = extra.req;
     const v = values[f];
@@ -63,7 +65,7 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
     const common = { onFocus: () => onFocus(f), 'aria-label': LABELS[f], disabled: locked };
     let input;
     if (kind === 'text') input = <input className="input" {...common} value={v ?? ''} maxLength={extra.n || 200} list={extra.list ? `dl-${extra.list}` : undefined} placeholder={extra.ph} onChange={(e) => set(f, e.target.value)} />;
-    else if (kind === 'long') input = <textarea className="input" rows={3} {...common} value={v ?? ''} maxLength={2000} onChange={(e) => set(f, e.target.value)} />;
+    else if (kind === 'long') input = <textarea className="input" rows={extra.rows || 3} {...common} value={v ?? ''} maxLength={extra.n || 2000} placeholder={extra.ph} onChange={(e) => set(f, e.target.value)} onBlur={f === 'lyrics' ? fillFirstLine : undefined} />;
     else if (kind === 'num') input = <input className="input" type="number" min={20} max={320} {...common} value={v ?? ''} onChange={(e) => set(f, e.target.value === '' ? null : Number(e.target.value))} />;
     else if (kind === 'one') input = <input className="input" {...common} value={v ?? ''} list={`dl-${extra.list}`} placeholder="Choose, or type your own" onChange={(e) => set(f, e.target.value)} />;
     else if (kind === 'pick') input = <select className="input" {...common} value={v ?? ''} onChange={(e) => set(f, e.target.value, { now: true })}><option value="">—</option>{extra.of.map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}</select>;
@@ -161,6 +163,7 @@ export default function ItemEditor({ uid, lists, me, perms = {}, onClose, onChan
             {field('massParts', 'many', { req: !(values.occasions || []).length, list: 'massParts', wide: true })}
             {field('occasions', 'many', { req: !(values.massParts || []).length, list: 'occasions', wide: true })}
             {field('seasons', 'many', { req: true, list: 'seasons', wide: true })}
+            {!isInstr && field('lyrics', 'long', { wide: true, rows: 6, n: 8000, ph: 'Optional, but it helps: type or paste the words, so members can find the song by any line they remember. The first line fills itself in.' })}
           </div>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMore((m) => !m)} aria-expanded={more}>{more ? '▾' : '▸'} More: arranger, first line, original key, tempo, character, {isInstr ? 'voicing' : 'instruments'}, theme, difficulty, copyright, notes</button>
           {more && (

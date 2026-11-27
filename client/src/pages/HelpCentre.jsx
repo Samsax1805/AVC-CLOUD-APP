@@ -26,7 +26,7 @@ export default function HelpCentre({ ctx }) {
   }, [q]);
 
   // a button only when this person can use that page (and, for music, that tab)
-  const canGo = (a) => pages.has(a.go.page) && (a.go.musicTab !== 'queue' || PERMS.libraryQueue(me)) && (a.go.musicTab !== 'approvals' || mine(a));
+  const canGo = (a) => pages.has(a.go.page) && (!['queue', 'requests'].includes(a.go.musicTab) || PERMS.libraryQueue(me)) && (a.go.musicTab !== 'approvals' || mine(a));
   const go = (g) => (openHelp ? openHelp(g) : setPage(g.page));
   const forWho = (a) => (a.who === 'everyone' ? 'Everyone' : a.who.map((r) => ROLES[r]?.label || r).join(' · '));
   const Guide = ({ a }) => {

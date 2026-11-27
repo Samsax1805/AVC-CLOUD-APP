@@ -81,8 +81,18 @@ const LibraryApprover = mongoose.model('LibraryApprover', new mongoose.Schema({
 // Small first-page pictures (about 30–60 KB each), kept apart so lists stay light; loaded one by one as cards appear
 const LibraryPreview = mongoose.model('LibraryPreview', new mongoose.Schema({ uid: { type: String, unique: true }, fid: String, data: String }, { timestamps: true }));
 
+// "Request a song": a member asks for music the library doesn't have yet; it goes to the Custodian
+const SongRequest = mongoose.model('SongRequest', new mongoose.Schema({
+  uid: { type: String, unique: true },
+  title: String, details: String, neededBy: String, // YYYY-MM-DD, optional
+  by: String, byName: String,
+  status: { type: String, default: 'open', index: true }, // open · found · declined · withdrawn
+  reply: String, doneBy: String, doneByName: String, doneAt: Date,
+  song: String, // the catalogue song (uid) that answers it
+}, { timestamps: true }).index({ by: 1, status: 1 }));
+
 const nextNumber = async (name) => (await Counter.findOneAndUpdate({ _id: name }, { $inc: { seq: 1 } }, { upsert: true, new: true })).seq;
 
 const peekNumber = async (name) => ((await Counter.findById(name).lean())?.seq || 0) + 1;
 
-module.exports = { Counter, LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, nextNumber, peekNumber };
+module.exports = { Counter, LibraryItem, LibraryTerm, LibraryApprover, LibraryPreview, SongRequest, nextNumber, peekNumber };
